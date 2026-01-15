@@ -12,7 +12,7 @@ async def read_comments(post_id: int):
 
 # 댓글 작성 (로그인 필수)
 @router.post("/{post_id}/comments", status_code=201)
-async def write_comment(
+async def create_comment_endpoint(
     post_id: int, 
     comment_data: CreateCommentRequest, 
     user: dict = Depends(get_current_user)
