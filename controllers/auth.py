@@ -2,33 +2,19 @@ from fastapi import Response, status
 import uuid  # 세션 ID 생성용
 from database import fake_users, fake_sessions
 from models.auth import SignupRequest, LoginRequest
-from utils import validate_email, validate_password, validate_nickname, APIException
+from utils import APIException
 
 # ==========================================
 # 1. 회원가입
 # ==========================================
 async def auth_signup(user_data: SignupRequest):
     
-    # 1. 필수값 누락 체크 (설계도: REQUIRED_FIELDS_MISSING)
-    if not all([user_data.email, user_data.password, user_data.nickname]):
-        raise APIException(code="REQUIRED_FIELDS_MISSING", message="이메일, 비밀번호, 닉네임은 필수 입력 사항입니다.", status_code=400)
+    # note: 필수값 체크 및 데이터 형식 검증은 Pydantic Model(SignupRequest)에서 이미 처리되었습니다.
 
-    # 2. 이메일 형식 검사 (설계도: INVALID_EMAIL_FORMAT)
-    if not validate_email(user_data.email):
-        raise APIException(code="INVALID_EMAIL_FORMAT", message="유효하지 않은 이메일 형식입니다. 다시 확인해주세요.", status_code=400)
-
-    # 3. 비밀번호 강도 검사 (설계도: WEAK_PASSWORD)
-    if not validate_password(user_data.password):
-        raise APIException(code="WEAK_PASSWORD", message="비밀번호는 영문, 숫자, 특수문자를 포함하여 8~20자여야 합니다.", status_code=400)
-
-    # 4. 닉네임 형식 검사 (설계도: INVALID_NICKNAME_FORMAT)
-    if not validate_nickname(user_data.nickname):
-        raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
-
-    # 5. 이메일 중복 체크 (설계도: ALREADY_EXIST_EMAIL)
+    # 1. 이메일 중복 체크 (설계도: ALREADY_EXIST_EMAIL)
     for user in fake_users:
         if user["email"] == user_data.email:
-            raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다.", status_code=409)
+             raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다.", status_code=409)
 
     # 6. 저장
     new_id = 1
