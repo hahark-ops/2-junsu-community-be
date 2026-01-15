@@ -1,13 +1,17 @@
 from datetime import datetime
 from database import fake_comments
-from models.comment import CreateCommentRequest
+from utils import APIException
 
-async def create_comment(post_id: int, comment_data: CreateCommentRequest, user: dict):
+async def create_comment(post_id: int, comment_data: dict, user: dict):
+    # 필수값 체크
+    if not comment_data.get("content"):
+        raise APIException(code="REQUIRED_FIELDS_MISSING", message="댓글 내용은 필수입니다.", status_code=400)
+    
     new_id = 1 if not fake_comments else fake_comments[-1]["commentId"] + 1
     new_comment = {
         "commentId": new_id,
         "postId": post_id,
-        "content": comment_data.content,
+        "content": comment_data["content"],
         "writer": user["nickname"],
         "createdAt": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     }

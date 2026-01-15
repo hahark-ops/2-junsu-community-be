@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Response, Request, status
+from fastapi import APIRouter, Response, Request, status, Body
 from controllers.auth import auth_login, auth_logout
-from models.auth import LoginRequest
 
 router = APIRouter(prefix="/v1/sessions")
 
 @router.post("", status_code=200)
-async def login(response: Response, login_data: LoginRequest):
+async def login(response: Response, login_data: dict = Body(...)):
     return await auth_login(response, login_data)
 
 @router.delete("", status_code=200)
