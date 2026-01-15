@@ -10,7 +10,7 @@ from utils import validate_email, validate_password, validate_nickname, APIExcep
 async def auth_signup(user_data: SignupRequest):
     
     # 1. 필수값 누락 체크 (설계도: REQUIRED_FIELDS_MISSING)
-    if not user_data.email or not user_data.password or not user_data.nickname:
+    if not all([user_data.email, user_data.password, user_data.nickname]):
         raise APIException(code="REQUIRED_FIELDS_MISSING", message="이메일, 비밀번호, 닉네임은 필수 입력 사항입니다.", status_code=400)
 
     # 2. 이메일 형식 검사 (설계도: INVALID_EMAIL_FORMAT)

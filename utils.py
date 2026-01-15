@@ -11,7 +11,7 @@ def validate_email(email: str) -> bool:
 # 2. 비밀번호 강도 검사
 # 조건: 영문, 숫자, 특수문자 포함, 8~20자
 def validate_password(password: str) -> bool:
-    if len(password) < 8 or len(password) > 20:
+    if not (8 <= len(password) <= 20):
         return False
     
     # 정규식: 영문(?=.*[A-Za-z]), 숫자(?=.*\d), 특수문자(?=.*[@$!%*#?&]) 각각 최소 1개 포함
