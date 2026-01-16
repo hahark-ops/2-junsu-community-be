@@ -5,6 +5,10 @@ description = "Community Backend API with FastAPI"
 authors = [
     {name = "Junsu", email = "junsu@example.com"},
 ]
+license = {text = "MIT"}
+requires-python = ">=3.9"
+readme = "README.md"
+
 dependencies = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.20.0",
@@ -12,8 +16,6 @@ dependencies = [
     "python-multipart>=0.0.6",
     "requests>=2.31.0",
 ]
-requires-python = ">=3.9"
-readme = "README.md"
 
 [build-system]
 requires = ["hatchling"]
