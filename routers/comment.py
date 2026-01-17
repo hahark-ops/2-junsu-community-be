@@ -17,3 +17,6 @@ async def create_comment_endpoint(
     user: dict = Depends(get_current_user)
 ):
     return await create_comment(post_id, comment_data, user)
+
+# TODO: 댓글 수정 (PATCH /v1/posts/{post_id}/comments/{comment_id})
+# TODO: 댓글 삭제 (DELETE /v1/posts/{post_id}/comments/{comment_id})
