@@ -1,9 +1,19 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from routers.index import router as api_router 
 from utils import APIException
 
 app = FastAPI(title="Community API - Task 2-1")
+
+# 0. 미들웨어 설정 (CORS)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 도메인 허용 (보안 취약점 주의: 실제 배포 시에는 특정 도메인만 허용해야 함)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 1. 명세에 정의된 에러 처리 (APIException)
 @app.exception_handler(APIException)
