@@ -27,6 +27,33 @@ async def check_email_availability(email: str | None):
     }
 
 # ==========================================
+# 0-1. 닉네임 중복 체크
+# ==========================================
+async def check_nickname_availability(nickname: str | None):
+    # 1. 닉네임 파라미터 누락
+    if not nickname:
+        raise APIException(code="NICKNAME_PARAM_MISSING", message="닉네임을 입력해주세요.", status_code=400)
+    
+    # 2. 닉네임 길이 검사 (최대 10자)
+    if len(nickname) > 10:
+        raise APIException(code="NICKNAME_TOO_LONG", message="닉네임은 최대 10자까지만 가능합니다.", status_code=400)
+    
+    # 3. 닉네임 형식 검사
+    if not validate_nickname(nickname):
+        raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
+    
+    # 4. 닉네임 중복 체크
+    for user in fake_users:
+        if user["nickname"] == nickname:
+            raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)
+    
+    return {
+        "code": "NICKNAME_AVAILABLE",
+        "message": "사용 가능한 닉네임입니다.",
+        "data": None
+    }
+
+# ==========================================
 # 1. 회원가입
 # ==========================================
 async def auth_signup(user_data: dict):
