@@ -25,6 +25,11 @@ def validate_nickname(nickname: str) -> bool:
     nickname_regex = r'^[가-힣a-zA-Z0-9]+$'
     return bool(re.match(nickname_regex, nickname))
 
+# 4. 닉네임 길이 검사
+# 조건: 최대 10자
+def validate_nickname_length(nickname: str, max_length: int = 10) -> bool:
+    return len(nickname) <= max_length
+
 class APIException(HTTPException):
     def __init__(self, code: str, message: str, status_code: int):
         self.code = code

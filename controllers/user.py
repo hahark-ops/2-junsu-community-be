@@ -1,7 +1,7 @@
 # controllers/user.py
 
-from database import fake_users
-from utils import APIException
+from database import fake_users, fake_sessions
+from utils import APIException, validate_nickname, validate_nickname_length, validate_password
 
 async def get_my_info(user: dict):
     """
@@ -57,8 +57,6 @@ async def get_user_by_id(user_id: int):
 # 3. 회원정보 수정
 # ==========================================
 async def update_user(user_id: int, update_data: dict, current_user: dict):
-    from utils import validate_nickname
-    
     # 1. 권한 체크: 본인만 수정 가능
     if current_user["userId"] != user_id:
         raise APIException(code="PERMISSION_DENIED", message="본인의 정보만 수정할 수 있습니다.", status_code=403)
@@ -80,7 +78,7 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
         if not validate_nickname(new_nickname):
             raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
         # 3-2. 길이 검사
-        if len(new_nickname) > 10:
+        if not validate_nickname_length(new_nickname):
             raise APIException(code="NICKNAME_TOO_LONG", message="닉네임은 최대 10자까지만 가능합니다.", status_code=400)
         # 3-3. 중복 검사
         for user in fake_users:
@@ -102,8 +100,6 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
 # 4. 비밀번호 변경
 # ==========================================
 async def change_password(user_id: int, password_data: dict, current_user: dict):
-    from utils import validate_password
-    
     # 1. 권한 체크
     if current_user["userId"] != user_id:
         raise APIException(code="PERMISSION_DENIED", message="본인의 비밀번호만 변경할 수 있습니다.", status_code=403)
@@ -145,8 +141,6 @@ async def change_password(user_id: int, password_data: dict, current_user: dict)
 # 5. 회원 탈퇴 (Soft Delete)
 # ==========================================
 async def delete_user(current_user: dict):
-    from database import fake_sessions
-    
     # 1. 사용자 찾기
     target_user = None
     for user in fake_users:

@@ -1,7 +1,7 @@
 from fastapi import Response
 import uuid  # 세션 ID 생성용
 from database import fake_users, fake_sessions
-from utils import validate_email, validate_password, validate_nickname, APIException
+from utils import validate_email, validate_password, validate_nickname, validate_nickname_length, APIException
 
 # ==========================================
 # 0. 이메일 중복 체크
@@ -35,7 +35,7 @@ async def check_nickname_availability(nickname: str | None):
         raise APIException(code="NICKNAME_PARAM_MISSING", message="닉네임을 입력해주세요.", status_code=400)
     
     # 2. 닉네임 길이 검사 (최대 10자)
-    if len(nickname) > 10:
+    if not validate_nickname_length(nickname):
         raise APIException(code="NICKNAME_TOO_LONG", message="닉네임은 최대 10자까지만 가능합니다.", status_code=400)
     
     # 3. 닉네임 형식 검사
