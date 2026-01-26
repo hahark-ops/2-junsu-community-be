@@ -1,7 +1,57 @@
 from fastapi import Response
 import uuid  # 세션 ID 생성용
 from database import fake_users, fake_sessions
-from utils import validate_email, validate_password, validate_nickname, APIException
+from utils import validate_email, validate_password, validate_nickname, validate_nickname_length, APIException
+
+# ==========================================
+# 0. 이메일 중복 체크
+# ==========================================
+async def check_email_availability(email: str | None):
+    # 1. 이메일 파라미터 누락
+    if not email:
+        raise APIException(code="EMAIL_PARAM_MISSING", message="검사할 이메일 주소를 입력해주세요.", status_code=400)
+    
+    # 2. 이메일 형식 검사
+    if not validate_email(email):
+        raise APIException(code="INVALID_EMAIL_FORMAT", message="올바른 이메일 형식이 아닙니다.", status_code=400)
+    
+    # 3. 이메일 중복 체크
+    for user in fake_users:
+        if user["email"] == email:
+            raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 사용 중인 이메일입니다.", status_code=409)
+    
+    return {
+        "code": "EMAIL_AVAILABLE",
+        "message": "사용 가능한 이메일입니다.",
+        "data": None
+    }
+
+# ==========================================
+# 0-1. 닉네임 중복 체크
+# ==========================================
+async def check_nickname_availability(nickname: str | None):
+    # 1. 닉네임 파라미터 누락
+    if not nickname:
+        raise APIException(code="NICKNAME_PARAM_MISSING", message="닉네임을 입력해주세요.", status_code=400)
+    
+    # 2. 닉네임 길이 검사 (최대 10자)
+    if not validate_nickname_length(nickname):
+        raise APIException(code="NICKNAME_TOO_LONG", message="닉네임은 최대 10자까지만 가능합니다.", status_code=400)
+    
+    # 3. 닉네임 형식 검사
+    if not validate_nickname(nickname):
+        raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
+    
+    # 4. 닉네임 중복 체크
+    for user in fake_users:
+        if user["nickname"] == nickname:
+            raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)
+    
+    return {
+        "code": "NICKNAME_AVAILABLE",
+        "message": "사용 가능한 닉네임입니다.",
+        "data": None
+    }
 
 # ==========================================
 # 1. 회원가입

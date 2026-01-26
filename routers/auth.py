@@ -1,9 +1,17 @@
-from fastapi import APIRouter, Response, Request, Body, Depends, status
-from controllers.auth import auth_signup, auth_login, auth_logout
+from fastapi import APIRouter, Response, Request, Body, Depends, status, Query
+from controllers.auth import auth_signup, auth_login, auth_logout, check_email_availability, check_nickname_availability
 from controllers.user import get_my_info
 from dependencies import get_current_user
 
 router = APIRouter(prefix="/v1/auth")
+
+@router.get("/emails/availability", status_code=status.HTTP_200_OK)
+async def check_email(email: str | None = Query(default=None)):
+    return await check_email_availability(email)
+
+@router.get("/nicknames/availability", status_code=status.HTTP_200_OK)
+async def check_nickname(nickname: str | None = Query(default=None)):
+    return await check_nickname_availability(nickname)
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(user_data: dict = Body(...)):
