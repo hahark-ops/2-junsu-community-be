@@ -24,9 +24,9 @@ async def auth_signup(user_data: dict):
     if not validate_nickname(user_data["nickname"]):
         raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
 
-    # 5. 이메일 중복 체크
+    # 5. 이메일 중복 체크 (탈퇴한 사용자는 제외)
     for user in fake_users:
-        if user["email"] == user_data["email"]:
+        if user["email"] == user_data["email"] and user.get("is_deleted") != True:
             raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다.", status_code=409)
 
     # 6. 저장
@@ -61,6 +61,10 @@ async def auth_login(response: Response, login_data: dict):
     
     if not user:
         raise APIException(code="LOGIN_FAILED", message="이메일 또는 비밀번호가 일치하지 않습니다.", status_code=400)
+
+    # 탈퇴한 회원 로그인 금지
+    if user.get("is_deleted") == True:
+        raise APIException(code="ACCOUNT_DELETED", message="탈퇴한 계정입니다. 다시 가입해주세요.", status_code=403)
 
     # 세션 생성 및 쿠키 굽기
     session_id = str(uuid.uuid4())

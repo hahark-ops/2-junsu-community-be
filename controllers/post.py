@@ -3,11 +3,25 @@ from database import fake_posts
 from utils import APIException
 
 async def get_posts_list(offset: int, limit: int):
+    from database import fake_likes, fake_comments
+    
+    # 각 게시글에 likeCount와 commentCount 추가
+    posts_with_counts = []
+    for post in fake_posts[offset : offset + limit]:
+        like_count = sum(1 for like in fake_likes if like["postId"] == post["postId"])
+        comment_count = sum(1 for comment in fake_comments if comment["postId"] == post["postId"])
+        post_with_count = {
+            **post,
+            "likeCount": like_count,
+            "commentCount": comment_count
+        }
+        posts_with_counts.append(post_with_count)
+    
     return {
         "code": "SUCCESS",
         "message": "게시물 목록 조회 성공",
         "data": {
-            "posts": fake_posts[offset : offset + limit],
+            "posts": posts_with_counts,
             "totalCount": len(fake_posts)
         }
     }
@@ -64,6 +78,7 @@ async def create_post(post_data: dict, user: dict):
         "fileUrl": post_data.get("fileUrl"),
         "writer": user["nickname"],
         "writerEmail": user["email"],
+        "authorId": user["userId"],
         "createdAt": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "viewCount": 0
     }
@@ -74,6 +89,8 @@ async def create_post(post_data: dict, user: dict):
 # 3. 게시글 상세 조회
 # ==========================================
 async def get_post_detail(post_id: int):
+    from database import fake_likes, fake_comments
+    
     # 1. 게시글 찾기
     target_post = None
     for post in fake_posts:
@@ -88,7 +105,11 @@ async def get_post_detail(post_id: int):
     # 3. 조회수 증가
     target_post["viewCount"] = target_post.get("viewCount", 0) + 1
     
-    # 4. 성공 응답
+    # 4. 좋아요 수, 댓글 수 계산
+    like_count = sum(1 for like in fake_likes if like["postId"] == post_id)
+    comment_count = sum(1 for comment in fake_comments if comment["postId"] == post_id)
+    
+    # 5. 성공 응답
     return {
         "code": "GET_POST_DETAIL_SUCCESS",
         "message": "게시글 정보를 성공적으로 불러왔습니다.",
@@ -98,7 +119,10 @@ async def get_post_detail(post_id: int):
             "content": target_post["content"],
             "fileUrl": target_post.get("fileUrl"),
             "writer": target_post["writer"],
+            "authorId": target_post.get("authorId"),
             "viewCount": target_post["viewCount"],
+            "likeCount": like_count,
+            "commentCount": comment_count,
             "createdAt": target_post["createdAt"]
         }
     }

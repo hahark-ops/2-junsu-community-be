@@ -14,6 +14,7 @@ async def create_comment(post_id: int, comment_data: dict, user: dict):
         "content": comment_data["content"],
         "writer": user["nickname"],
         "writerEmail": user["email"],
+        "authorId": user["userId"],
         "createdAt": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     }
     fake_comments.append(new_comment)
