@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, Body, status
+from fastapi import APIRouter, Depends, status
 from controllers.post import get_posts_list, create_post as create_post_controller, get_post_detail, update_post, delete_post, like_post, unlike_post
-from dependencies import get_current_user # 로그인 체크기
+from dependencies import get_current_user
+from models.post import PostCreate, PostUpdate
 
 router = APIRouter(prefix="/v1/posts")
 
@@ -15,18 +16,18 @@ async def get_post(post_id: int):
 # 게시물 작성은 로그인한 사람만 가능
 @router.post("", status_code=201)
 async def create_post(
-    post_data: dict = Body(...), 
+    post_data: PostCreate, 
     user: dict = Depends(get_current_user)
 ):
-    return await create_post_controller(post_data, user)
+    return await create_post_controller(post_data.model_dump(), user)
 
 @router.patch("/{post_id}", status_code=status.HTTP_200_OK)
 async def update_post_endpoint(
     post_id: int,
-    update_data: dict = Body(...),
+    update_data: PostUpdate,
     user: dict = Depends(get_current_user)
 ):
-    return await update_post(post_id, update_data, user)
+    return await update_post(post_id, update_data.model_dump(exclude_none=True), user)
 
 @router.delete("/{post_id}", status_code=status.HTTP_200_OK)
 async def delete_post_endpoint(post_id: int, user: dict = Depends(get_current_user)):
