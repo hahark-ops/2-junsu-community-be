@@ -3,6 +3,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from routers.index import router as api_router 
 from utils import APIException
+from fastapi.staticfiles import StaticFiles
+import os
 
 app = FastAPI(title="Community API - Task 2-1")
 
@@ -41,6 +43,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # 통합 라우터 연결
 app.include_router(api_router)
+
+# 3. 정적 파일 서빙 (업로드된 이미지 접근 가능하도록)
+# uploads 폴더가 없으면 생성
+if not os.path.exists("uploads"):
+    os.makedirs("uploads")
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 async def root():

@@ -64,7 +64,8 @@ async def get_comments(post_id: int):
                 c.updated_at as updatedAt,
                 u.id as authorId,
                 u.nickname as writer,
-                u.email as writerEmail
+                u.email as writerEmail,
+                (SELECT file_url FROM files WHERE user_id = u.id AND file_type = 'profile' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1) as authorProfileImage
             FROM comments c
             JOIN users u ON c.user_id = u.id
             WHERE c.post_id = %s AND c.deleted_at IS NULL

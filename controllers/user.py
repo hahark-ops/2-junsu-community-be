@@ -19,7 +19,7 @@ async def get_my_info(user: dict):
             "userId": user["userId"],
             "email": user["email"],
             "nickname": user["nickname"],
-            "profileimage": user.get("profileimage")
+            "profileImage": user.get("profileImage")
         }
     }
 
@@ -65,7 +65,7 @@ async def get_user_by_id(user_id: int):
                 "userId": matched_user["id"],
                 "email": matched_user["email"],
                 "nickname": matched_user["nickname"],
-                "profileimage": profileimage
+                "profileImage": profileimage
             }
         }
     finally:
@@ -105,7 +105,7 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
         
         # 4. 프로필 이미지 수정 (새 파일 insert)
         # file_url만 업데이트한다고 가정 (기존 파일 삭제 처리 등은 복잡하므로 단순 insert, 최신꺼 select)
-        if "profileimage" in update_data and update_data["profileimage"]:
+        if "profileImage" in update_data and update_data["profileImage"]:
             # 기존 프로필 이미지들 soft delete 처리
             del_img_query = "UPDATE files SET deleted_at = NOW() WHERE user_id = %s AND file_type = 'profile'"
             cursor.execute(del_img_query, (user_id,))
@@ -115,7 +115,7 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
                 INSERT INTO files (file_type, user_id, file_url, file_name, file_size)
                 VALUES ('profile', %s, %s, 'profile.jpg', 0)
             """
-            cursor.execute(ins_img_query, (user_id, update_data["profileimage"]))
+            cursor.execute(ins_img_query, (user_id, update_data["profileImage"]))
 
         conn.commit()
     

@@ -123,16 +123,10 @@ async def auth_signup(user_data: dict):
         cursor.execute(insert_query, (user_data["email"], user_data["password"], user_data["nickname"]))
         user_id = cursor.lastrowid
         
-        # 프로필 이미지 저장 (있다면)
-        if user_data.get("profileimage"):
-             # TODO: file_name, file_size 처리는? 
-             # 여기서는 URL만 들어오므로 임시 값 넣거나 프로필 이미지 로직 보완 필요.
-             # 일단 스키마에 맞춰서 넣음.
-             file_query = """
-                INSERT INTO files (file_type, user_id, file_url, file_name, file_size) 
-                VALUES ('profile', %s, %s, 'profile.jpg', 0)
-             """
-             cursor.execute(file_query, (user_id, user_data["profileimage"]))
+        # 3. 프로필 이미지 연결 (파일 테이블의 user_id 업데이트)
+        if user_data.get("profileImage"):
+            update_file_query = "UPDATE files SET user_id = %s, file_type = 'profile' WHERE file_url = %s"
+            cursor.execute(update_file_query, (user_id, user_data["profileImage"]))
 
         conn.commit()
         

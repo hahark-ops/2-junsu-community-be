@@ -1,13 +1,11 @@
-# models/file.py
 from pydantic import BaseModel
+from datetime import datetime
 from typing import Optional
 
-# ==========================================
-# 응답 모델 (Response)
-# ==========================================
-
-class FileResponse(BaseModel):
-    """파일 업로드 응답"""
-    imageUrl: str
+class FileUploadResponse(BaseModel):
+    fileId: int
+    fileUrl: str
     fileName: str
-    size: Optional[int] = None
+    fileSize: int
+    fileType: str
+    createdAt: datetime

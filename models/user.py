@@ -11,7 +11,7 @@ class UserCreate(BaseModel):
     email: str
     password: str
     nickname: str
-    profileimage: Optional[str] = None
+    profileImage: Optional[str] = None
 
 class UserLogin(BaseModel):
     """로그인 요청"""
@@ -21,7 +21,7 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     """회원정보 수정 요청"""
     nickname: Optional[str] = None
-    profileimage: Optional[str] = None
+    profileImage: Optional[str] = None
 
 class PasswordChange(BaseModel):
     """비밀번호 변경 요청"""
@@ -37,4 +37,4 @@ class UserResponse(BaseModel):
     userId: int
     email: str
     nickname: str
-    profileimage: Optional[str] = None
+    profileImage: Optional[str] = None

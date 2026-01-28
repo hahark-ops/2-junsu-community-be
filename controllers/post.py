@@ -23,7 +23,9 @@ async def get_posts_list(offset: int, limit: int):
                 u.id as authorId,
                 u.nickname as writer,
                 u.email as writerEmail,
+                u.email as writerEmail,
                 (SELECT file_url FROM files WHERE post_id = p.id AND file_type = 'post' AND deleted_at IS NULL LIMIT 1) as fileUrl,
+                (SELECT file_url FROM files WHERE user_id = u.id AND file_type = 'profile' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1) as authorProfileImage,
                 (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likeCount,
                 (SELECT COUNT(*) FROM comments WHERE post_id = p.id AND deleted_at IS NULL) as commentCount
             FROM posts p
@@ -96,11 +98,9 @@ async def update_post(post_id: int, update_data: dict, current_user: dict):
             cursor.execute(del_file_query, (post_id,))
             
             if update_data["fileUrl"]:
-                ins_file_query = """
-                    INSERT INTO files (file_type, post_id, file_url, file_name, file_size)
-                    VALUES ('post', %s, %s, 'post_image.jpg', 0)
-                """
-                cursor.execute(ins_file_query, (post_id, update_data["fileUrl"]))
+                # 기존 업로드된 파일의 post_id 연결
+                update_file_query = "UPDATE files SET post_id = %s, file_type = 'post' WHERE file_url = %s"
+                cursor.execute(update_file_query, (post_id, update_data["fileUrl"]))
         
         if fields:
             query = f"UPDATE posts SET {', '.join(fields)} WHERE id = %s"
@@ -148,12 +148,10 @@ async def create_post(post_data: dict, user: dict):
         cursor.execute(query, (user["userId"], post_data["title"], post_data["content"]))
         new_post_id = cursor.lastrowid
         
-        # 파일 저장 (fileUrl이 있는 경우)
+        # 파일 연결 (fileUrl이 있는 경우)
         if post_data.get("fileUrl"):
-             file_query = """
-                INSERT INTO files (file_type, post_id, file_url, file_name, file_size)
-                VALUES ('post', %s, %s, 'post_image.jpg', 0)
-             """
+             # INSERT가 아니라 UPDATE로 기존 파일에 post_id 매핑
+             file_query = "UPDATE files SET post_id = %s, file_type = 'post' WHERE file_url = %s"
              cursor.execute(file_query, (new_post_id, post_data["fileUrl"]))
         
         conn.commit()
@@ -186,7 +184,9 @@ async def get_post_detail(post_id: int):
                 p.view_count as viewCount, 
                 p.created_at as createdAt,
                 u.id as authorId, 
+                u.id as authorId, 
                 u.nickname as writer,
+                (SELECT file_url FROM files WHERE user_id = u.id AND file_type = 'profile' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1) as authorProfileImage,
                 (SELECT file_url FROM files WHERE post_id = p.id AND file_type = 'post' AND deleted_at IS NULL LIMIT 1) as fileUrl
             FROM posts p
             JOIN users u ON p.user_id = u.id
@@ -230,6 +230,7 @@ async def get_post_detail(post_id: int):
                 "content": target_post["content"],
                 "fileUrl": target_post["fileUrl"],
                 "writer": target_post["writer"],
+                "authorProfileImage": target_post["authorProfileImage"],
                 "authorId": target_post["authorId"],
                 "viewCount": target_post["viewCount"],
                 "likeCount": like_count,

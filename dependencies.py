@@ -40,14 +40,7 @@ async def get_current_user(request: Request):
             )
         
         # Pydantic 모델과 호환되도록 필드명 매핑 (user_id -> userId)
-        # DB 컬럼이 id, nickname 등 소문자인데 백엔드 로직에서는 userId를 기대할 수 있음
-        # 하지만 models/user.py를 보면 userId, email, nickname 등을 사용함.
-        # DB의 id를 userId로 변환해주는 것이 안전함.
-        
         user["userId"] = user["id"]
-        # DB에서 profile_image_url 컬럼이 없음? 아 통합 파일 테이블인데..
-        # 아까 스키마에서 users 테이블엔 profile_image 관련 컬럼이 없고 files 테이블에 있음.
-        # 프로필 이미지도 같이 가져오려면?
         
         # 프로필 이미지 조회 (files 테이블)
         img_query = """
@@ -60,10 +53,17 @@ async def get_current_user(request: Request):
         cursor.execute(img_query, (user["id"],))
         img = cursor.fetchone()
         
-        user["profileimage"] = img["file_url"] if img else None
+        user["profileImage"] = img["file_url"] if img else None
         
         return user
 
     finally:
         cursor.close()
         conn.close()
+
+# 로그인 여부와 관계없이 사용자를 반환 (없으면 None)
+async def get_current_user_optional(request: Request):
+    try:
+        return await get_current_user(request)
+    except APIException:
+        return None

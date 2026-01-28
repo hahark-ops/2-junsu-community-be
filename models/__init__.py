@@ -4,4 +4,4 @@
 from models.user import UserCreate, UserResponse, UserLogin
 from models.post import PostCreate, PostResponse, PostUpdate
 from models.comment import CommentCreate, CommentResponse, CommentUpdate
-from models.file import FileResponse
+from models.file import FileUploadResponse
