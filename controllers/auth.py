@@ -1,7 +1,8 @@
 from fastapi import Response
 import uuid  # 세션 ID 생성용
-from database import fake_users, fake_sessions
+from database import get_db_connection
 from utils import validate_email, validate_password, validate_nickname, validate_nickname_length, APIException
+from datetime import datetime, timedelta
 
 # ==========================================
 # 0. 이메일 중복 체크
@@ -15,16 +16,23 @@ async def check_email_availability(email: str | None):
     if not validate_email(email):
         raise APIException(code="INVALID_EMAIL_FORMAT", message="올바른 이메일 형식이 아닙니다.", status_code=400)
     
-    # 3. 이메일 중복 체크
-    for user in fake_users:
-        if user["email"] == email:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # 3. 이메일 중복 체크
+        query = "SELECT id FROM users WHERE email = %s"
+        cursor.execute(query, (email,))
+        if cursor.fetchone():
             raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 사용 중인 이메일입니다.", status_code=409)
-    
-    return {
-        "code": "EMAIL_AVAILABLE",
-        "message": "사용 가능한 이메일입니다.",
-        "data": None
-    }
+        
+        return {
+            "code": "EMAIL_AVAILABLE",
+            "message": "사용 가능한 이메일입니다.",
+            "data": None
+        }
+    finally:
+        cursor.close()
+        conn.close()
 
 # ==========================================
 # 0-1. 닉네임 중복 체크
@@ -42,16 +50,23 @@ async def check_nickname_availability(nickname: str | None):
     if not validate_nickname(nickname):
         raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
     
-    # 4. 닉네임 중복 체크
-    for user in fake_users:
-        if user["nickname"] == nickname:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # 4. 닉네임 중복 체크
+        query = "SELECT id FROM users WHERE nickname = %s"
+        cursor.execute(query, (nickname,))
+        if cursor.fetchone():
             raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)
-    
-    return {
-        "code": "NICKNAME_AVAILABLE",
-        "message": "사용 가능한 닉네임입니다.",
-        "data": None
-    }
+        
+        return {
+            "code": "NICKNAME_AVAILABLE",
+            "message": "사용 가능한 닉네임입니다.",
+            "data": None
+        }
+    finally:
+        cursor.close()
+        conn.close()
 
 # ==========================================
 # 1. 회원가입
@@ -74,30 +89,68 @@ async def auth_signup(user_data: dict):
     if not validate_nickname(user_data["nickname"]):
         raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
 
-    # 5. 이메일 중복 체크 (탈퇴한 사용자는 제외)
-    for user in fake_users:
-        if user["email"] == user_data["email"] and user.get("is_deleted") != True:
-            raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다.", status_code=409)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # 5. 이메일 중복 체크 (탈퇴한 사용자는 제외? 보통은 이메일 유니크라 탈퇴해도 못쓰게 하거나, 탈퇴시 이메일 변경 등의 정책 필요)
+        # 여기서는 is_deleted = True면 재가입 허용? 
+        # API 명세상 "이미 가입된 이메일" 체크.
+        # DB UNIQUE 제약조건이 있으므로 중복 INSERT 시 에러 발생함.
+        # 하지만 명확한 에러 메시지를 위해 조회 먼저.
+        
+        check_query = "SELECT id, is_deleted FROM users WHERE email = %s"
+        cursor.execute(check_query, (user_data["email"],))
+        existing_user = cursor.fetchone()
+        
+        if existing_user:
+            if not existing_user["is_deleted"]:
+                raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다.", status_code=409)
+            else:
+                # 탈퇴한 회원이면? 재가입 정책에 따라 다름. 여기서는 일단 중복 에러로 막거나, 복구 로직이 필요.
+                # 간단하게 "이미 가입된"으로 처리
+                raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다. (탈퇴 계정)", status_code=409)
 
-    # 6. 저장
-    new_id = 1
-    if fake_users:
-        new_id = fake_users[-1]["userId"] + 1
-    
-    new_user = {
-        "userId": new_id,
-        "email": user_data["email"],
-        "password": user_data["password"],
-        "nickname": user_data["nickname"],
-        "profileimage": user_data.get("profileimage")
-    }
-    fake_users.append(new_user)
-    
-    return {
-        "code": "SIGNUP_SUCCESS", 
-        "message": "회원가입이 완료되었습니다.", 
-        "data": None
-    }
+        # 닉네임 중복 체크
+        check_nick_query = "SELECT id FROM users WHERE nickname = %s"
+        cursor.execute(check_nick_query, (user_data["nickname"],))
+        if cursor.fetchone():
+             raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)
+
+        # 6. 저장
+        # PASSWORD HASHING should be here in real app, but using plaintext as per "basics" request
+        insert_query = "INSERT INTO users (email, password, nickname) VALUES (%s, %s, %s)"
+        cursor.execute(insert_query, (user_data["email"], user_data["password"], user_data["nickname"]))
+        user_id = cursor.lastrowid
+        
+        # 프로필 이미지 저장 (있다면)
+        if user_data.get("profileimage"):
+             # TODO: file_name, file_size 처리는? 
+             # 여기서는 URL만 들어오므로 임시 값 넣거나 프로필 이미지 로직 보완 필요.
+             # 일단 스키마에 맞춰서 넣음.
+             file_query = """
+                INSERT INTO files (file_type, user_id, file_url, file_name, file_size) 
+                VALUES ('profile', %s, %s, 'profile.jpg', 0)
+             """
+             cursor.execute(file_query, (user_id, user_data["profileimage"]))
+
+        conn.commit()
+        
+        return {
+            "code": "SIGNUP_SUCCESS", 
+            "message": "회원가입이 완료되었습니다.", 
+            "data": None
+        }
+    except Exception as e:
+        conn.rollback()
+        # 이미 APIException은 상위로 전파, 그 외 DB 에러 처리
+        if isinstance(e, APIException):
+            raise e
+        print(f"Signup Error: {e}")
+        raise APIException(code="INTERNAL_ERROR", message="회원가입 중 오류가 발생했습니다.", status_code=500)
+    finally:
+        cursor.close()
+        conn.close()
 
 # ==========================================
 # 2. 로그인
@@ -107,33 +160,65 @@ async def auth_login(response: Response, login_data: dict):
     if not login_data.get("email") or not login_data.get("password"):
         raise APIException(code="REQUIRED_FIELDS_MISSING", message="이메일과 비밀번호는 필수입니다.", status_code=400)
     
-    user = next((u for u in fake_users if u["email"] == login_data["email"] and u["password"] == login_data["password"]), None)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     
-    if not user:
-        raise APIException(code="LOGIN_FAILED", message="이메일 또는 비밀번호가 일치하지 않습니다.", status_code=400)
+    try:
+        # 사용자 조회
+        query = "SELECT * FROM users WHERE email = %s AND password = %s"
+        cursor.execute(query, (login_data["email"], login_data["password"]))
+        user = cursor.fetchone()
+        
+        if not user:
+            raise APIException(code="LOGIN_FAILED", message="이메일 또는 비밀번호가 일치하지 않습니다.", status_code=400) # 보안상 401 권장
 
-    # 탈퇴한 회원 로그인 금지
-    if user.get("is_deleted") == True:
-        raise APIException(code="ACCOUNT_DELETED", message="탈퇴한 계정입니다. 다시 가입해주세요.", status_code=403)
+        # 탈퇴한 회원 로그인 금지
+        if user["is_deleted"]:
+            raise APIException(code="ACCOUNT_DELETED", message="탈퇴한 계정입니다. 다시 가입해주세요.", status_code=403)
 
-    # 세션 생성 및 쿠키 굽기
-    session_id = str(uuid.uuid4())
-    fake_sessions[session_id] = user["email"]
-    
-    response.set_cookie(key="session_id", value=session_id, httponly=True)
+        # 세션 생성 및 쿠키 굽기
+        session_id = str(uuid.uuid4())
+        
+        # 세션 만료 시간 (예: 24시간)
+        expires_at = datetime.now() + timedelta(hours=24)
+        
+        session_query = "INSERT INTO sessions (user_id, session_id, expires_at) VALUES (%s, %s, %s)"
+        cursor.execute(session_query, (user["id"], session_id, expires_at))
+        conn.commit()
+        
+        response.set_cookie(key="session_id", value=session_id, httponly=True)
 
-    return {
-        "code": "LOGIN_SUCCESS", 
-        "message": "로그인 성공", 
-        "data": {"email": user["email"]}
-    }
+        return {
+            "code": "LOGIN_SUCCESS", 
+            "message": "로그인 성공", 
+            "data": {"email": user["email"]}
+        }
+    except Exception as e:
+        conn.rollback()
+        if isinstance(e, APIException):
+            raise e
+        print(f"Login Error: {e}")
+        raise APIException(code="INTERNAL_ERROR", message="로그인 처리 중 오류 발생", status_code=500)
+    finally:
+        cursor.close()
+        conn.close()
 
 # ==========================================
 # 3. 로그아웃
 # ==========================================
 async def auth_logout(response: Response, session_id: str):
-    if session_id and session_id in fake_sessions:
-        del fake_sessions[session_id]
+    if session_id:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            query = "DELETE FROM sessions WHERE session_id = %s"
+            cursor.execute(query, (session_id,))
+            conn.commit()
+        except Exception:
+            pass # 로그아웃은 조용히 실패해도 넘어감
+        finally:
+            cursor.close()
+            conn.close()
     
     response.delete_cookie("session_id")
     return {
