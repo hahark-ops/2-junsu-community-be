@@ -6,8 +6,8 @@ import os
 # 실제 배포 시에는 환경변수나 보안 파일로 관리하는 것이 좋습니다.
 DB_CONFIG = {
     "host": "localhost",          # EC2 내부 MySQL
-    "user": "root",               # 사용자명 (확인 필요)
-    "password": "Your_password",       # 비밀번호 (사용자가 설정한 값으로 변경 필요!!!)
+    "user": "community_user",     # 전용 DB 사용자
+    "password": "CommunityUser123!", # 전용 DB 비밀번호
     "database": "community_db",   # 데이터베이스 이름
     "charset": "utf8mb4",
     "use_unicode": True,
