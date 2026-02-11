@@ -1,27 +1,38 @@
-# database.py
+import mysql.connector
+from mysql.connector import pooling
+import os
 
-# 1. 회원 데이터
-fake_users = [
-    # 테스트용 계정 (서버 껐다 켜도 사용 가능)
-    {
-        "userId": 1,
-        "email": "test@test.com",
-        "password": "Password123!",
-        "nickname": "테스트유저",
-        "profileimage": None
-    }
-]
+# 데이터베이스 설정
+# 실제 배포 시에는 환경변수나 보안 파일로 관리하는 것이 좋습니다.
+DB_CONFIG = {
+    "host": "localhost",          # EC2 내부 MySQL
+    "user": "root",               # 사용자명 (확인 필요)
+    "password": "Your_password",       # 비밀번호 (사용자가 설정한 값으로 변경 필요!!!)
+    "database": "community_db",   # 데이터베이스 이름
+    "charset": "utf8mb4",
+    "use_unicode": True,
+    "get_warnings": True,
+}
 
-# 2. 게시글 데이터
-fake_posts = []
+# 커넥션 풀 생성 (성능 향상)
+try:
+    db_pool = mysql.connector.pooling.MySQLConnectionPool(
+        pool_name="mypool",
+        pool_size=5,
+        **DB_CONFIG
+    )
+    print("MySQL 커넥션 풀 생성 완료")
+except Exception as e:
+    print(f"MySQL 연결 실패: {e}")
+    db_pool = None
 
-# 3. 댓글 데이터
-fake_comments = []
-
-# 4. 세션 저장소 (로그인 상태 유지용)
-# 형식: { "session_id_문자열": "user_email" }
-fake_sessions = {}
-
-# 5. 좋아요 데이터
-# 형식: [{"postId": 1, "userEmail": "user@test.com"}, ...]
-fake_likes = []
+def get_db_connection():
+    try:
+        if db_pool:
+            return db_pool.get_connection()
+        else:
+            # 풀 생성이 안 됐을 경우 직접 연결 시도
+            return mysql.connector.connect(**DB_CONFIG)
+    except Exception as e:
+        print(f"DB 커넥션 가져오기 실패: {e}")
+        raise e
