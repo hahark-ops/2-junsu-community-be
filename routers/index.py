@@ -1,3 +1,8 @@
+from fastapi import APIRouter
+from routers.auth import router as auth_router
+from routers.post import router as post_router
+from routers.comment import router as comment_router
+from routers.user import router as user_router
 from routers.file import router as file_router
 
 router = APIRouter()
