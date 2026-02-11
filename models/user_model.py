@@ -60,13 +60,12 @@ def update_user_password(user_id: int, password_hash: str):
     update_user_fields(user_id, {"password": password_hash})
 
 
-def soft_delete_user_and_sessions(user_id: int, email: str):
+def hard_delete_user(user_id: int):
     with get_cursor(dictionary=False) as (conn, cursor):
         try:
-            cursor.execute("UPDATE users SET is_deleted = 1 WHERE userId = %s", (user_id,))
-            cursor.execute("DELETE FROM sessions WHERE userEmail = %s", (email,))
+            # users 삭제 시 FK ON DELETE CASCADE로 sessions/posts/comments/likes 연쇄 삭제
+            cursor.execute("DELETE FROM users WHERE userId = %s", (user_id,))
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-

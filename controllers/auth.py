@@ -96,6 +96,9 @@ async def auth_signup(user_data: dict):
     if not validate_nickname(user_data["nickname"]):
         raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
 
+    # Legacy soft-deleted 계정 정리: 재가입 시 email/nickname 재사용 가능하도록 처리
+    auth_model.purge_deleted_users_for_signup(user_data["email"], user_data["nickname"])
+
     if auth_model.count_users_by_email(user_data["email"]) > 0:
         raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다.", status_code=409)
     if auth_model.count_users_by_nickname(user_data["nickname"]) > 0:

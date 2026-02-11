@@ -112,10 +112,10 @@ async def change_password(user_id: int, password_data: dict, current_user: dict)
     }
 
 # ==========================================
-# 5. 회원 탈퇴 (Soft Delete)
+# 5. 회원 탈퇴 (Hard Delete)
 # ==========================================
 async def delete_user(current_user: dict):
-    user_model.soft_delete_user_and_sessions(current_user["userId"], current_user["email"])
+    user_model.hard_delete_user(current_user["userId"])
     
     return {
         "code": "DELETE_USER_SUCCESS",
