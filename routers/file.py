@@ -38,7 +38,7 @@ async def upload_file(file: UploadFile = File(...), type: str = "post"):
         
         return {
             "url": f"/uploads/{new_filename}",
-            "fileUrl": f"http://52.78.24.198:8000/uploads/{new_filename}", # 임시로 하드코딩 (IP는 사용자 환경에 따라 다름)
+            "fileUrl": f"/uploads/{new_filename}", # 프록시(`host:3000/uploads/...`)를 통해 접근하도록 상대경로 사용
             "filename": new_filename
         }
         

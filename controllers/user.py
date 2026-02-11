@@ -85,6 +85,12 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
             if user["nickname"] == new_nickname and user["userId"] != user_id:
                 raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)
         target_user["nickname"] = new_nickname
+        
+        # 3-4. 작성한 게시글의 닉네임도 함께 변경 (비정규화 데이터 동기화)
+        from database import fake_posts
+        for post in fake_posts:
+            if post.get("writerEmail") == target_user["email"]:
+                post["writer"] = new_nickname
     
     # 4. 프로필 이미지 수정
     if "profileimage" in update_data:

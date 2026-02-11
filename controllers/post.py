@@ -88,7 +88,26 @@ async def get_post_detail(post_id: int):
     # 3. 조회수 증가
     target_post["viewCount"] = target_post.get("viewCount", 0) + 1
     
-    # 4. 성공 응답
+    # 4. 추가 정보 계산 (좋아요 수, 댓글 수, 좋아요 목록)
+    from database import fake_likes, fake_comments, fake_users
+    
+    like_count = sum(1 for like in fake_likes if like["postId"] == post_id)
+    comment_count = sum(1 for comment in fake_comments if comment["postId"] == post_id)
+    
+    # 좋아요 목록 (Frontend에서 isLiked 확인용 - userId 포함)
+    post_likes = []
+    for like in fake_likes:
+        if like["postId"] == post_id:
+            # 이메일로 사용자 ID 찾기
+            liker = next((u for u in fake_users if u["email"] == like["userEmail"]), None)
+            if liker:
+                post_likes.append({
+                    "userId": liker["userId"],
+                    "email": liker["email"],
+                    "nickname": liker["nickname"]
+                })
+    
+    # 5. 성공 응답
     return {
         "code": "GET_POST_DETAIL_SUCCESS",
         "message": "게시글 정보를 성공적으로 불러왔습니다.",
@@ -99,7 +118,13 @@ async def get_post_detail(post_id: int):
             "fileUrl": target_post.get("fileUrl"),
             "writer": target_post["writer"],
             "viewCount": target_post["viewCount"],
-            "createdAt": target_post["createdAt"]
+            "createdAt": target_post["createdAt"],
+            # 추가된 필드
+            "likeCount": like_count,
+            "commentCount": comment_count,
+            "likes": post_likes,
+            "writerEmail": target_post.get("writerEmail"), # 본인 확인용
+            "userId": next((u["userId"] for u in fake_users if u["email"] == target_post.get("writerEmail")), None) # 본인 확인용 ID
         }
     }
 
