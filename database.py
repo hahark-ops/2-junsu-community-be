@@ -1,26 +1,27 @@
 # database.py
-import mysql.connector
-from typing import Generator
 
-# 1. MySQL 연결 설정
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "1234",
-    "database": "community_db",
-    "charset": "utf8mb4",
-    "collation": "utf8mb4_unicode_ci",
-    "autocommit": True  # 자동 커밋 활성화
-}
+# 1. 회원 데이터
+fake_users = [
+    # 테스트용 계정 (서버 껐다 켜도 사용 가능)
+    {
+        "userId": 1,
+        "email": "test@test.com",
+        "password": "Password123!",
+        "nickname": "테스트유저",
+        "profileimage": None
+    }
+]
 
-def get_db_connection():
-    """DB 연결 객체 반환"""
-    return mysql.connector.connect(**DB_CONFIG)
+# 2. 게시글 데이터
+fake_posts = []
 
-def get_db_cursor(dictionary=True):
-    """
-    커서 생성 헬퍼
-    dictionary=True: 결과를 딕셔너리로 반환 (ex: {"id": 1, "email": "..."})
-    """
-    conn = get_db_connection()
-    return conn, conn.cursor(dictionary=dictionary)
+# 3. 댓글 데이터
+fake_comments = []
+
+# 4. 세션 저장소 (로그인 상태 유지용)
+# 형식: { "session_id_문자열": "user_email" }
+fake_sessions = {}
+
+# 5. 좋아요 데이터
+# 형식: [{"postId": 1, "userEmail": "user@test.com"}, ...]
+fake_likes = []
