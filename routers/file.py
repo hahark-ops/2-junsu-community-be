@@ -1,5 +1,4 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-import shutil
 import uuid
 import os
 
@@ -14,19 +13,44 @@ UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+try:
+    MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", str(5 * 1024 * 1024)))
+except ValueError:
+    MAX_UPLOAD_SIZE = 5 * 1024 * 1024
+
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...), type: str = "post"):
     try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="파일명이 비어 있습니다.")
+
+        if file.content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다.")
+
         # 파일 확장자 추출
-        file_extension = os.path.splitext(file.filename)[1]
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        if file_extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="지원하지 않는 확장자입니다.")
         
         # 고유한 파일명 생성 (UUID)
         new_filename = f"{uuid.uuid4()}{file_extension}"
         file_path = os.path.join(UPLOAD_DIR, new_filename)
         
-        # 파일 저장
+        # 파일 저장(용량 제한 포함)
+        total_size = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > MAX_UPLOAD_SIZE:
+                    buffer.close()
+                    os.remove(file_path)
+                    raise HTTPException(status_code=413, detail="파일 크기가 제한을 초과했습니다.")
+                buffer.write(chunk)
             
         # URL 반환 (서버 주소는 프론트엔드에서 조합하거나 상대경로로)
         # 여기서는 전체 URL을 반환하기보다 파일 경로를 반환하거나 전체 URL을 반환하도록 설정
@@ -43,5 +67,9 @@ async def upload_file(file: UploadFile = File(...), type: str = "post"):
         }
         
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         print(f"File upload error: {str(e)}")
         raise HTTPException(status_code=500, detail="파일 업로드 중 오류가 발생했습니다.")
+    finally:
+        await file.close()

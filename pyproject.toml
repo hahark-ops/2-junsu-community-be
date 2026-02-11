@@ -6,7 +6,7 @@ authors = [
     {name = "Junsu", email = "junsu@example.com"},
 ]
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 readme = "README.md"
 
 dependencies = [
@@ -15,6 +15,8 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-multipart>=0.0.6",
     "requests>=2.31.0",
+    "mysql-connector-python>=8.0.0",
+    "bcrypt>=4.1.0",
 ]
 
 [build-system]

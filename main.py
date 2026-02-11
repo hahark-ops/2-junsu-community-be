@@ -9,14 +9,22 @@ from utils import APIException
 
 app = FastAPI(title="Community API - Task 2-1")
 
+def _cors_origins():
+    raw = os.getenv("CORS_ALLOW_ORIGINS")
+    if raw:
+        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+        if origins:
+            return origins
+
+    return [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
 # 0. 미들웨어 설정 (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://43.200.163.12:3000"
-    ],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

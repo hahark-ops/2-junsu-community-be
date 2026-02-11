@@ -1,5 +1,5 @@
 from fastapi import Request
-from database import get_db_connection
+from models import auth_model, user_model
 from utils import APIException
 
 # 로그인한 사용자 찾기 (없으면 에러 401)
@@ -15,31 +15,16 @@ async def get_current_user(request: Request):
             status_code=401
         )
     
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    try:
-        # 3. DB에서 세션 확인
-        cursor.execute("SELECT userEmail FROM sessions WHERE sessionId = %s", (session_id,))
-        session = cursor.fetchone()
+    user_email = auth_model.get_user_email_by_session_id(session_id)
+    if not user_email:
+        raise APIException(
+            code="LOGIN_REQUIRED",
+            message="유효하지 않은 세션입니다. 다시 로그인해주세요.",
+            status_code=401
+        )
         
-        if not session:
-             raise APIException(
-                code="LOGIN_REQUIRED",
-                message="유효하지 않은 세션입니다. 다시 로그인해주세요.",
-                status_code=401
-            )
-            
-        user_email = session["userEmail"]
+    user = user_model.get_user_by_email(user_email)
+    if not user:
+        raise APIException(code="USER_NOT_FOUND", message="사용자를 찾을 수 없습니다.", status_code=401)
         
-        # 4. 유저 정보 조회
-        cursor.execute("SELECT * FROM users WHERE email = %s", (user_email,))
-        user = cursor.fetchone()
-        
-        if not user:
-            raise APIException(code="USER_NOT_FOUND", message="사용자를 찾을 수 없습니다.", status_code=401)
-            
-        return user
-        
-    finally:
-        cursor.close()
-        conn.close()
+    return user

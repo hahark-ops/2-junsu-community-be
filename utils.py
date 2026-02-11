@@ -1,6 +1,7 @@
-# utils.py
-
 import re
+import os
+
+import bcrypt
 from fastapi import HTTPException
 
 # 1. 이메일 형식 검사
@@ -29,6 +30,40 @@ def validate_nickname(nickname: str) -> bool:
 # 조건: 최대 10자
 def validate_nickname_length(nickname: str, max_length: int = 10) -> bool:
     return len(nickname) <= max_length
+
+
+def _bcrypt_rounds() -> int:
+    raw = os.getenv("BCRYPT_ROUNDS", "12")
+    try:
+        rounds = int(raw)
+    except ValueError:
+        return 12
+    return max(4, min(rounds, 16))
+
+
+def is_hashed_password(value: str | None) -> bool:
+    if not value:
+        return False
+    return value.startswith("$2a$") or value.startswith("$2b$") or value.startswith("$2y$")
+
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt(rounds=_bcrypt_rounds())
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+
+def verify_password(plain_password: str, stored_password: str | None) -> bool:
+    if not stored_password:
+        return False
+
+    if is_hashed_password(stored_password):
+        try:
+            return bcrypt.checkpw(plain_password.encode("utf-8"), stored_password.encode("utf-8"))
+        except ValueError:
+            return False
+
+    # Legacy plaintext compatibility for existing data.
+    return plain_password == stored_password
 
 class APIException(HTTPException):
     def __init__(self, code: str, message: str, status_code: int):

@@ -1,38 +1,45 @@
-import mysql.connector
-from mysql.connector import pooling
 import os
 
-# 데이터베이스 설정
-# 실제 배포 시에는 환경변수나 보안 파일로 관리하는 것이 좋습니다.
+import mysql.connector
+
+
+def _int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 DB_CONFIG = {
-    "host": "localhost",          # EC2 내부 MySQL
-    "user": "community_user",     # 전용 DB 사용자
-    "password": "CommunityUser123!", # 전용 DB 비밀번호
-    "database": "community_db",   # 데이터베이스 이름
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": _int_env("DB_PORT", 3306),
+    "user": os.getenv("DB_USER", "community_user"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "database": os.getenv("DB_NAME", "community_db"),
     "charset": "utf8mb4",
     "use_unicode": True,
     "get_warnings": True,
 }
 
-# 커넥션 풀 생성 (성능 향상)
+POOL_NAME = os.getenv("DB_POOL_NAME", "community_pool")
+POOL_SIZE = _int_env("DB_POOL_SIZE", 5)
+
 try:
     db_pool = mysql.connector.pooling.MySQLConnectionPool(
-        pool_name="mypool",
-        pool_size=5,
-        **DB_CONFIG
+        pool_name=POOL_NAME,
+        pool_size=POOL_SIZE,
+        **DB_CONFIG,
     )
-    print("MySQL 커넥션 풀 생성 완료")
+    print("MySQL connection pool initialized")
 except Exception as e:
-    print(f"MySQL 연결 실패: {e}")
+    print(f"MySQL pool initialization failed: {e}")
     db_pool = None
 
+
 def get_db_connection():
-    try:
-        if db_pool:
-            return db_pool.get_connection()
-        else:
-            # 풀 생성이 안 됐을 경우 직접 연결 시도
-            return mysql.connector.connect(**DB_CONFIG)
-    except Exception as e:
-        print(f"DB 커넥션 가져오기 실패: {e}")
-        raise e
+    if db_pool:
+        return db_pool.get_connection()
+    return mysql.connector.connect(**DB_CONFIG)
