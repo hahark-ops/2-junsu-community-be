@@ -60,12 +60,14 @@ async def create_post(post_data: dict, user: dict):
     return {"code": "POST_CREATED", "message": "게시물이 등록되었습니다.", "data": {"postId": new_id}}
 
 
-async def get_post_detail(post_id: int):
+async def get_post_detail(post_id: int, increase_view: bool = True):
     target_post = post_model.get_post_detail(post_id)
     if not target_post:
         raise APIException(code="POST_NOT_FOUND", message="존재하지 않거나 삭제된 게시글입니다.", status_code=404)
 
-    post_model.increment_view_count(post_id)
+    if increase_view:
+        post_model.increment_view_count(post_id)
+
     like_count = post_model.count_likes(post_id)
     comment_count = post_model.count_comments(post_id)
     likes = post_model.fetch_likes(post_id)
@@ -80,7 +82,7 @@ async def get_post_detail(post_id: int):
             "fileUrl": target_post["fileUrl"],
             "writer": target_post["writer"],
             "writerEmail": target_post["writerEmail"],
-            "viewCount": target_post["viewCount"] + 1,
+            "viewCount": target_post["viewCount"] + (1 if increase_view else 0),
             "createdAt": target_post["createdAt"],
             "authorProfileImage": target_post["authorProfileImage"],
             "authorId": target_post["authorId"],

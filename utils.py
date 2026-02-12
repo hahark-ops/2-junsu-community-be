@@ -10,13 +10,9 @@ def validate_email(email: str) -> bool:
     return bool(re.match(email_regex, email))
 
 # 2. 비밀번호 강도 검사
-# 조건: 영문, 숫자, 특수문자 포함, 8~20자
+# 조건: 8~20자, 대문자/소문자/숫자/특수문자 각각 1개 이상, 공백 불가
 def validate_password(password: str) -> bool:
-    if not (8 <= len(password) <= 20):
-        return False
-    
-    # 정규식: 영문(?=.*[A-Za-z]), 숫자(?=.*\d), 특수문자(?=.*[@$!%*#?&]) 각각 최소 1개 포함
-    pw_regex = r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]+$'
+    pw_regex = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9])\S{8,20}$'
     return bool(re.match(pw_regex, password))
 
 # 3. 닉네임 형식 검사

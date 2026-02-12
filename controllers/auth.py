@@ -91,7 +91,11 @@ async def auth_signup(user_data: dict):
         raise APIException(code="INVALID_EMAIL_FORMAT", message="유효하지 않은 이메일 형식입니다.", status_code=400)
 
     if not validate_password(user_data["password"]):
-        raise APIException(code="WEAK_PASSWORD", message="비밀번호는 영문, 숫자, 특수문자를 포함하여 8~20자여야 합니다.", status_code=400)
+        raise APIException(
+            code="WEAK_PASSWORD",
+            message="비밀번호는 8~20자이며 대문자, 소문자, 숫자, 특수문자를 각각 1개 이상 포함해야 합니다.",
+            status_code=400,
+        )
 
     if not validate_nickname(user_data["nickname"]):
         raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)

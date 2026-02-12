@@ -9,8 +9,8 @@ async def get_posts(offset: int = 0, limit: int = 10):
     return await get_posts_list(offset, limit)
 
 @router.get("/{post_id}", status_code=status.HTTP_200_OK)
-async def get_post(post_id: int):
-    return await get_post_detail(post_id)
+async def get_post(post_id: int, increase_view: bool = True):
+    return await get_post_detail(post_id, increase_view=increase_view)
 
 # 게시물 작성은 로그인한 사람만 가능
 @router.post("", status_code=201)

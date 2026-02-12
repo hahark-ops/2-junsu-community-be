@@ -101,7 +101,11 @@ async def change_password(user_id: int, password_data: dict, current_user: dict)
         raise APIException(code="INVALID_CURRENT_PASSWORD", message="현재 사용 중인 비밀번호가 일치하지 않습니다.", status_code=401)
     
     if not validate_password(new_pw):
-        raise APIException(code="WEAK_PASSWORD", message="비밀번호는 영문, 숫자, 특수문자를 포함하여 8~20자여야 합니다.", status_code=400)
+        raise APIException(
+            code="WEAK_PASSWORD",
+            message="비밀번호는 8~20자이며 대문자, 소문자, 숫자, 특수문자를 각각 1개 이상 포함해야 합니다.",
+            status_code=400,
+        )
     
     user_model.update_user_password(user_id, hash_password(new_pw))
     

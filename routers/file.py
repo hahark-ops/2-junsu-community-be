@@ -1,6 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 import uuid
 import os
+from dependencies import get_current_user
 
 router = APIRouter(
     prefix="/v1/files",
@@ -21,8 +22,14 @@ except ValueError:
     MAX_UPLOAD_SIZE = 5 * 1024 * 1024
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...), type: str = "post"):
+async def upload_file(
+    file: UploadFile = File(...),
+    type: str = "post",
+    current_user: dict = Depends(get_current_user),
+):
     try:
+        # 인증된 사용자만 업로드 가능
+        _ = current_user
         if not file.filename:
             raise HTTPException(status_code=400, detail="파일명이 비어 있습니다.")
 

@@ -16,7 +16,7 @@ def get_user_by_email(email: str):
 def count_users_by_nickname_excluding_user(nickname: str, user_id: int) -> int:
     with get_cursor() as (_, cursor):
         cursor.execute(
-            "SELECT count(*) as count FROM users WHERE nickname = %s AND userId != %s",
+            "SELECT count(*) as count FROM users WHERE nickname = %s AND userId != %s AND is_deleted = 0",
             (nickname, user_id),
         )
         row = cursor.fetchone() or {"count": 0}
