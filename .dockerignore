@@ -1,0 +1,13 @@
+.git
+.gitignore
+.vscode
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+*.py[cod]
+*.log
+.venv/
+venv/
+uploads/
+.env
+.env.*
