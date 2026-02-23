@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 
-from routers.index import router as api_router 
+from routers.index import router as api_router
 from utils import APIException
 
 app = FastAPI(title="Community API - Task 2-1")
@@ -57,10 +57,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 통합 라우터 연결
 app.include_router(api_router)
 
+def _resolve_upload_dir() -> str:
+    upload_dir = os.getenv("UPLOAD_DIR", "uploads").strip() or "uploads"
+    if os.getenv("AWS_LAMBDA_FUNCTION_NAME") and not os.path.isabs(upload_dir):
+        return os.path.join("/tmp", upload_dir)
+    return upload_dir
+
+
 # 정적 파일 서빙 (이미지 업로드)
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = _resolve_upload_dir()
 if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 

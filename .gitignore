@@ -40,6 +40,12 @@ build/
 .env
 .env.local
 .env.*.local
+infra/terraform/terraform.tfvars
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/tfplan
+infra/terraform/.terraform/
+infra/terraform/build/*.zip
 
 # ========================================
 # 로그 및 데이터
