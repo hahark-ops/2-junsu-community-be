@@ -601,6 +601,8 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_lb_listener_rule" "be_api" {
+  count = var.enable_alb_be_api_rule ? 1 : 0
+
   listener_arn = aws_lb_listener.http.arn
   priority     = 10
 

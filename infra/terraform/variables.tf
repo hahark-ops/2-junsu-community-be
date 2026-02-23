@@ -139,3 +139,9 @@ variable "be_repo_branch" {
   type        = string
   default     = "main"
 }
+
+variable "enable_alb_be_api_rule" {
+  description = "ALB에서 /v1, /docs를 BE 타겟그룹으로 직접 우회할지 여부"
+  type        = bool
+  default     = false
+}
