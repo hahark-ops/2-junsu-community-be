@@ -1,0 +1,28 @@
+aws_region   = "ap-northeast-2"
+project_name = "community"
+environment  = "dev"
+
+# 현재 내 공인 IP/32 로 설정 (예: 1.2.3.4/32)
+admin_cidr = "0.0.0.0/0"
+
+# EC2 키페어 이름
+key_pair_name = "your-keypair-name"
+
+# RDS
+db_name     = "community_db"
+db_username = "community_user"
+db_password = "change_me_please"
+
+# 선택: 비우면 Terraform이 랜덤 suffix를 붙여 생성
+upload_bucket_name     = ""
+cloudtrail_bucket_name = ""
+athena_results_bucket_name = ""
+
+# S3 CORS 허용 Origin (ALB DNS 또는 FE 도메인)
+upload_allowed_origin = "*"
+
+# 선택: 초기 부트스트랩 자동 clone (비우면 생략)
+fe_repo_url    = ""
+fe_repo_branch = "main"
+be_repo_url    = ""
+be_repo_branch = "main"

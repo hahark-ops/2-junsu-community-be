@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y git docker amazon-efs-utils
+systemctl enable docker
+systemctl start docker
+
+usermod -aG docker ec2-user || true
+
+mkdir -p /mnt/community-efs
+if ! grep -q "${efs_id}" /etc/fstab; then
+  echo "${efs_id}:/ /mnt/community-efs efs _netdev,tls 0 0" >> /etc/fstab
+fi
+mount -a -t efs defaults || true
+
+mkdir -p /opt/community-be
+cd /opt
+
+if [ -n "${be_repo_url}" ]; then
+  if [ ! -d /opt/community-be/.git ]; then
+    git clone --branch "${be_repo_branch}" "${be_repo_url}" /opt/community-be
+  fi
+
+  cd /opt/community-be
+  git fetch --all
+  git checkout "${be_repo_branch}"
+  git pull --ff-only || true
+
+  # .env가 준비된 경우에만 자동 실행
+  if [ -f /opt/community-be/.env ]; then
+    docker rm -f community-be || true
+    docker build -t community-be:latest .
+    docker run -d --name community-be --restart unless-stopped --network host --env-file .env community-be:latest
+  fi
+fi

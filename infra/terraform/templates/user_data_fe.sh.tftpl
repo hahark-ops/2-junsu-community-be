@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y git nodejs
+npm install -g pm2
+
+mkdir -p /opt/community-fe
+cd /opt
+
+if [ -n "${fe_repo_url}" ]; then
+  if [ ! -d /opt/community-fe/.git ]; then
+    git clone --branch "${fe_repo_branch}" "${fe_repo_url}" /opt/community-fe
+  fi
+
+  cd /opt/community-fe
+  git fetch --all
+  git checkout "${fe_repo_branch}"
+  git pull --ff-only || true
+
+  npm install || true
+
+  pm2 delete community-fe || true
+  PORT=3000 BACKEND_TARGET="http://${be_private_ip}:8000" pm2 start src/server.js --name community-fe --update-env
+  pm2 save
+  pm2 startup systemd -u ec2-user --hp /home/ec2-user || true
+fi
