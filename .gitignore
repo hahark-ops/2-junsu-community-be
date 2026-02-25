@@ -43,6 +43,12 @@ deploy.env
 .env.local
 .env.*.local
 infra/terraform/terraform.tfvars
+
+# Nginx/Certbot runtime artifacts
+docker/nginx/acme/*
+!docker/nginx/acme/.gitkeep
+docker/nginx/letsencrypt/*
+!docker/nginx/letsencrypt/.gitkeep
 infra/terraform/*.tfstate
 infra/terraform/*.tfstate.*
 infra/terraform/tfplan

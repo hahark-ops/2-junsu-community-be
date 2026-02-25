@@ -1,10 +1,11 @@
-# Docker 과제 실행 가이드 (FE + BE + DB)
+# Docker 과제 실행 가이드 (Nginx + FE + BE + DB)
 
 이 가이드는 아래 과제 요구사항을 그대로 수행하기 위한 실행 순서입니다.
 
 1. FE/BE/DB 이미지화 + `docker-compose` 로컬 실행/테스트  
 2. 이미지 레지스트리 푸시  
 3. Linux 서버에서 이미지 기반 배포
+4. Nginx 리버스 프록시 단일 진입점 구성
 
 ## 0) 준비
 
@@ -33,14 +34,14 @@ cd /Users/junsu/Desktop/2-junsu-community-be
 ### 1-3. 테스트
 
 ```bash
-# BE 헬스체크
-curl -i http://127.0.0.1:8000/
+# APP 진입(nginx -> fe)
+curl -i http://127.0.0.1/
 
-# FE 응답체크
-curl -i http://127.0.0.1:3000/
+# BE 문서(nginx -> be)
+curl -i http://127.0.0.1/docs
 
 # 프록시 경유 API 체크(실패가 정상: 계정 없음)
-curl -i -X POST http://127.0.0.1:3000/v1/auth/login \
+curl -i -X POST http://127.0.0.1/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"none@example.com","password":"Password!123"}'
 ```

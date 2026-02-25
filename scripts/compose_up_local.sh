@@ -8,5 +8,5 @@ docker compose up -d --build
 docker compose ps
 
 echo
-echo "FE: http://localhost:3000"
-echo "BE: http://localhost:8000"
+echo "APP: http://localhost"
+echo "API: http://localhost/v1"
