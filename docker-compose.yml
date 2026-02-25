@@ -1,0 +1,63 @@
+name: community-local
+
+services:
+  db:
+    build:
+      context: .
+      dockerfile: docker/db.Dockerfile
+    image: community-db:local
+    container_name: community-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: community_db
+      MYSQL_USER: community_user
+      MYSQL_PASSWORD: community_password
+      TZ: Asia/Seoul
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  be:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: community-be:local
+    container_name: community-be
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    ports:
+      - "8000:8000"
+    volumes:
+      - be_uploads:/app/uploads
+
+  fe:
+    build:
+      context: ..
+      dockerfile: ./2-junsu-community-be/docker/fe.Dockerfile
+    image: community-fe:local
+    container_name: community-fe
+    restart: unless-stopped
+    depends_on:
+      be:
+        condition: service_started
+    environment:
+      PORT: "3000"
+      BACKEND_TARGET: http://be:8000
+    ports:
+      - "3000:3000"
+
+volumes:
+  db_data:
+  be_uploads:

@@ -38,6 +38,8 @@ build/
 
 # 환경 변수 (민감정보)
 .env
+.env.docker.local
+deploy.env
 .env.local
 .env.*.local
 infra/terraform/terraform.tfvars

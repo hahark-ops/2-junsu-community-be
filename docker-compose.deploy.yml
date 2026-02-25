@@ -1,0 +1,70 @@
+name: community-deploy
+
+services:
+  db:
+    image: ${DB_IMAGE}
+    container_name: community-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Seoul
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  be:
+    image: ${BE_IMAGE}
+    container_name: community-be
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_POOL_NAME: community_pool
+      DB_POOL_SIZE: 5
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+      COOKIE_SECURE: false
+      COOKIE_SAMESITE: lax
+      COOKIE_MAX_AGE: 604800
+      MAX_UPLOAD_SIZE_BYTES: 15728640
+      MAX_PROFILE_UPLOAD_SIZE_BYTES: 15728640
+      MAX_POST_UPLOAD_SIZE_BYTES: 20971520
+      UPLOAD_PROVIDER: local
+      UPLOAD_DIR: uploads
+      BCRYPT_ROUNDS: 12
+    ports:
+      - "8000:8000"
+    volumes:
+      - be_uploads:/app/uploads
+
+  fe:
+    image: ${FE_IMAGE}
+    container_name: community-fe
+    restart: unless-stopped
+    depends_on:
+      be:
+        condition: service_started
+    environment:
+      PORT: 3000
+      BACKEND_TARGET: http://be:8000
+    ports:
+      - "3000:3000"
+
+volumes:
+  db_data:
+  be_uploads:
