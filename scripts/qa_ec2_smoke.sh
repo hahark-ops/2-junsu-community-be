@@ -62,6 +62,34 @@ expect_status() {
   echo "[PASS] ${label} (status ${actual})"
 }
 
+wait_for_status() {
+  local method="$1"
+  local path="$2"
+  local expected_regex="$3"
+  local label="$4"
+  local max_retries="${5:-20}"
+  local sleep_seconds="${6:-2}"
+  local attempt=1
+  local status=""
+
+  while [[ "${attempt}" -le "${max_retries}" ]]; do
+    status="$(request_json "${method}" "${path}")"
+    if [[ "${status}" =~ ^(${expected_regex})$ ]]; then
+      echo "[PASS] ${label} ready (status ${status}, attempt ${attempt}/${max_retries})"
+      return 0
+    fi
+    echo "[INFO] ${label} not ready yet (status ${status}, attempt ${attempt}/${max_retries})"
+    attempt=$((attempt + 1))
+    sleep "${sleep_seconds}"
+  done
+
+  echo "[FAIL] ${label} readiness timeout: expected ${expected_regex}, got ${status}"
+  echo "----- response body -----"
+  cat "${BODY_FILE}"
+  echo
+  exit 1
+}
+
 json_field() {
   local field="$1"
   python3 - "${field}" "${BODY_FILE}" <<'PY'
@@ -109,6 +137,8 @@ echo "BASE_URL=${BASE_URL}"
 
 status="$(request_json GET "/")"
 expect_status "${status}" "200" "health check"
+
+wait_for_status GET "/v1/posts" "200" "public posts api" 20 2
 
 status="$(request_json GET "/v1/posts")"
 expect_status "${status}" "200" "public posts list"
