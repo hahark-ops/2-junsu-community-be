@@ -25,9 +25,10 @@ async def create_comment(post_id: int, comment_data: dict, user: dict):
             "postId": post_id,
             "content": comment_data["content"],
             "writer": user["nickname"],
-            "writerEmail": user["email"],
             "createdAt": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-            "authorProfileImage": user.get("profileimage")
+            "authorProfileImage": user.get("profileimage"),
+            "userId": user.get("userId"),
+            "authorId": user.get("userId"),
         }
     }
 
@@ -41,14 +42,12 @@ async def get_comments(post_id: int):
             "postId": c["postId"],
             "content": c["content"],
             "writer": c["writer"],
-            "writerEmail": c["writerEmail"],
             "createdAt": c["createdAt"],
             "updatedAt": c.get("updatedAt"),
             "authorProfileImage": c["authorProfileImage"],
             "userId": c["authorId"],
             "authorId": c["authorId"],
             "nickname": c["authorNickname"],
-            "authorEmail": c["authorEmail"]
         })
     
     return {"code": "SUCCESS", "message": "댓글 목록 조회 성공", "data": formatted_comments}

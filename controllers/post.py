@@ -17,8 +17,29 @@ def _serialize_likes(like_rows: list[dict]) -> list[dict]:
     return serialized
 
 
+def _serialize_posts(posts: list[dict]) -> list[dict]:
+    serialized = []
+    for row in posts or []:
+        serialized.append(
+            {
+                "postId": row.get("postId"),
+                "title": row.get("title"),
+                "content": row.get("content"),
+                "fileUrl": row.get("fileUrl"),
+                "writer": row.get("writer"),
+                "viewCount": row.get("viewCount"),
+                "createdAt": row.get("createdAt"),
+                "updatedAt": row.get("updatedAt"),
+                "authorProfileImage": row.get("authorProfileImage"),
+                "likeCount": row.get("likeCount", 0),
+                "commentCount": row.get("commentCount", 0),
+            }
+        )
+    return serialized
+
+
 async def get_posts_list(offset: int, limit: int):
-    posts = post_model.fetch_posts(offset, limit)
+    posts = _serialize_posts(post_model.fetch_posts(offset, limit))
     total_count = post_model.count_posts()
     return {
         "code": "SUCCESS",
@@ -94,7 +115,6 @@ async def get_post_detail(post_id: int, increase_view: bool = True):
             "content": target_post["content"],
             "fileUrl": target_post["fileUrl"],
             "writer": target_post["writer"],
-            "writerEmail": target_post["writerEmail"],
             "viewCount": target_post["viewCount"] + (1 if increase_view else 0),
             "createdAt": target_post["createdAt"],
             "authorProfileImage": target_post["authorProfileImage"],

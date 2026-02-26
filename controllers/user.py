@@ -21,10 +21,13 @@ async def get_my_info(user: dict):
         }
     }
 
-async def get_user_by_id(user_id: int):
+async def get_user_by_id(user_id: int, current_user: dict):
     """
     특정 사용자 정보 조회 (ID 기반)
     """
+    if current_user["userId"] != user_id:
+        raise APIException(code="PERMISSION_DENIED", message="본인의 정보만 조회할 수 있습니다.", status_code=403)
+
     matched_user = user_model.get_user_by_id(user_id)
     if not matched_user:
         raise APIException(code="USER_NOT_FOUND", message="해당 사용자를 찾을 수 없습니다.", status_code=404)
@@ -37,7 +40,6 @@ async def get_user_by_id(user_id: int):
         "message": "사용자 정보 조회 성공",
         "data": {
             "userId": matched_user["userId"],
-            "email": matched_user["email"],
             "nickname": matched_user["nickname"],
             "profileImage": matched_user.get("profileimage")
         }

@@ -13,4 +13,5 @@ fi
 cd "${ROOT_DIR}"
 docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml pull
 docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml up -d
+./scripts/run_migrations.sh "${ROOT_DIR}/docker-compose.deploy.yml" "${ENV_FILE}"
 docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml ps

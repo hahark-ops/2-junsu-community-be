@@ -5,8 +5,8 @@ from dependencies import get_current_user
 router = APIRouter(prefix="/v1/users")
 
 @router.get("/{user_id}", status_code=status.HTTP_200_OK)
-async def get_user(user_id: int):
-    return await get_user_by_id(user_id)
+async def get_user(user_id: int, user: dict = Depends(get_current_user)):
+    return await get_user_by_id(user_id, user)
 
 @router.patch("/{user_id}", status_code=status.HTTP_200_OK)
 async def update_user_endpoint(

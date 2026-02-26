@@ -3,7 +3,16 @@ from models.common import get_cursor
 
 def fetch_posts(offset: int, limit: int):
     sql = """
-        SELECT p.*, u.profileimage as authorProfileImage,
+        SELECT
+               p.postId,
+               p.title,
+               p.content,
+               p.fileUrl,
+               p.writer,
+               p.viewCount,
+               p.createdAt,
+               p.updatedAt,
+               u.profileimage as authorProfileImage,
                (SELECT COUNT(*) FROM likes WHERE postId = p.postId) as likeCount,
                (SELECT COUNT(*) FROM comments WHERE postId = p.postId) as commentCount
         FROM posts p

@@ -15,8 +15,16 @@ def create_comment(post_id: int, content: str, writer: str, writer_email: str) -
 
 def fetch_comments(post_id: int):
     sql = """
-        SELECT c.*, u.profileimage as authorProfileImage, u.userId as authorId,
-               u.nickname as authorNickname, u.email as authorEmail
+        SELECT
+            c.commentId,
+            c.postId,
+            c.content,
+            c.writer,
+            c.createdAt,
+            c.updatedAt,
+            u.profileimage as authorProfileImage,
+            u.userId as authorId,
+            u.nickname as authorNickname
         FROM comments c
         LEFT JOIN users u ON c.writerEmail = u.email
         WHERE c.postId = %s
@@ -51,4 +59,3 @@ def delete_comment(comment_id: int):
         except Exception:
             conn.rollback()
             raise
-
