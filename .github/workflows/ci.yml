@@ -40,17 +40,7 @@ jobs:
       - name: Checkout BE
         uses: actions/checkout@v4
 
-      - name: Checkout FE (with token)
-        if: ${{ secrets.FE_REPO_READ_TOKEN != '' }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.FE_REPO }}
-          ref: main
-          path: fe-repo
-          token: ${{ secrets.FE_REPO_READ_TOKEN }}
-
-      - name: Checkout FE (public fallback)
-        if: ${{ secrets.FE_REPO_READ_TOKEN == '' }}
+      - name: Checkout FE
         uses: actions/checkout@v4
         with:
           repository: ${{ env.FE_REPO }}
