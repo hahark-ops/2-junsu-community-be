@@ -140,6 +140,7 @@ jobs:
             --arg deploy_dir "${EC2_DEPLOY_DIR}" \
             --arg aws_region "${AWS_REGION}" \
             --arg registry "${ECR_REGISTRY}" \
+            --arg commit_sha "${GITHUB_SHA}" \
             --arg be_image "${{ steps.img.outputs.be_image }}" \
             --arg fe_image "${{ steps.img.outputs.fe_image }}" \
             --arg db_image "${{ steps.img.outputs.db_image }}" \
@@ -150,6 +151,9 @@ jobs:
             '{commands:[
               "set -euo pipefail",
               "cd " + $deploy_dir,
+              "git fetch --all --prune",
+              "git checkout -f " + $commit_sha,
+              "git reset --hard " + $commit_sha,
               "aws ecr get-login-password --region " + $aws_region + " | docker login --username AWS --password-stdin " + $registry,
               "grep -q \"^BE_IMAGE=\" deploy.proxy.env && sed -i \"s#^BE_IMAGE=.*#BE_IMAGE=" + $be_image + "#\" deploy.proxy.env || echo \"BE_IMAGE=" + $be_image + "\" >> deploy.proxy.env",
               "grep -q \"^FE_IMAGE=\" deploy.proxy.env && sed -i \"s#^FE_IMAGE=.*#FE_IMAGE=" + $fe_image + "#\" deploy.proxy.env || echo \"FE_IMAGE=" + $fe_image + "\" >> deploy.proxy.env",
@@ -224,12 +228,16 @@ jobs:
             --arg deploy_dir "${EC2_DEPLOY_DIR}" \
             --arg aws_region "${AWS_REGION}" \
             --arg registry "${ECR_REGISTRY}" \
+            --arg commit_sha "${GITHUB_SHA}" \
             --arg be_image "${PREV_BE_IMAGE}" \
             --arg fe_image "${PREV_FE_IMAGE}" \
             --arg db_image "${PREV_DB_IMAGE}" \
             '{commands:[
               "set -euo pipefail",
               "cd " + $deploy_dir,
+              "git fetch --all --prune",
+              "git checkout -f " + $commit_sha,
+              "git reset --hard " + $commit_sha,
               "aws ecr get-login-password --region " + $aws_region + " | docker login --username AWS --password-stdin " + $registry,
               "grep -q \"^BE_IMAGE=\" deploy.proxy.env && sed -i \"s#^BE_IMAGE=.*#BE_IMAGE=" + $be_image + "#\" deploy.proxy.env || echo \"BE_IMAGE=" + $be_image + "\" >> deploy.proxy.env",
               "grep -q \"^FE_IMAGE=\" deploy.proxy.env && sed -i \"s#^FE_IMAGE=.*#FE_IMAGE=" + $fe_image + "#\" deploy.proxy.env || echo \"FE_IMAGE=" + $fe_image + "\" >> deploy.proxy.env",
