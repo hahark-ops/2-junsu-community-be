@@ -72,8 +72,6 @@ services:
       - "443:443"
     volumes:
       - ./docker/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./docker/nginx/acme:/var/www/certbot
-      - ./docker/nginx/letsencrypt:/etc/letsencrypt:ro
 
 volumes:
   db_data:

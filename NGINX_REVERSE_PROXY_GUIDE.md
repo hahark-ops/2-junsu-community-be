@@ -3,7 +3,6 @@
 ## 목표
 1. 단일 EC2에서 Docker로 `nginx + fe + be + mysql` 동작
 2. `nginx`가 `/`는 FE로, `/v1`는 BE로 라우팅
-3. 도메인 + HTTPS(Let's Encrypt) 적용
 
 ## 준비
 1. EC2(리눅스)에 Docker 설치
@@ -32,36 +31,10 @@ cp deploy.proxy.env.example deploy.proxy.env
 
 - `http://<EC2_PUBLIC_IP>`
 
-## 2) HTTPS + 도메인 적용
-### 2-1. DNS 설정
-도메인 DNS에 A 레코드 추가:
-
-- `@` -> `<EC2_PUBLIC_IP>`
-- `www` -> `<EC2_PUBLIC_IP>` (선택)
-
-### 2-2. env 값 추가
-`deploy.proxy.env`에 아래 값 추가:
-
-```env
-DOMAIN=your-domain.com
-EMAIL=you@example.com
-```
-
-HTTPS 적용:
-
-```bash
-./scripts/enable_https_domain.sh
-```
-
-완료 후 접속:
-
-- `https://your-domain.com`
-
 ## 보안그룹 권장
 외부 인바운드:
 
 - `80/tcp` 허용
-- `443/tcp` 허용
 - `22/tcp`는 본인 IP만 허용
 
 차단 권장:
@@ -71,6 +44,4 @@ HTTPS 적용:
 ## 파일 설명
 - `docker-compose.reverse-proxy.yml`: 단일 EC2 배포용 Compose
 - `docker/nginx/conf.d/default.conf`: HTTP 리버스 프록시 설정
-- `docker/nginx/conf.d/https.template.conf`: HTTPS 템플릿
 - `scripts/proxy_up_single_ec2.sh`: HTTP 배포
-- `scripts/enable_https_domain.sh`: HTTPS 인증서 발급/반영
