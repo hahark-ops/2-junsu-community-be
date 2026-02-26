@@ -19,7 +19,7 @@
 ### 1-1. 구성 파일
 
 - BE Dockerfile: `/Users/junsu/Desktop/2-junsu-community-be/Dockerfile`
-- FE Dockerfile: `/Users/junsu/Desktop/2-junsu-community-be/docker/fe.Dockerfile`
+- FE Dockerfile: `/Users/junsu/Desktop/2-junsu-community-fe/Dockerfile`
 - DB Dockerfile: `/Users/junsu/Desktop/2-junsu-community-be/docker/db.Dockerfile`
 - 로컬 compose: `/Users/junsu/Desktop/2-junsu-community-be/docker-compose.yml`
 - 로컬 env: `/Users/junsu/Desktop/2-junsu-community-be/.env.docker`
@@ -28,6 +28,7 @@
 
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
+export FE_REPO_PATH=/Users/junsu/Desktop/2-junsu-community-fe
 ./scripts/compose_up_local.sh
 ```
 
@@ -50,6 +51,7 @@ curl -i -X POST http://127.0.0.1/v1/auth/login \
 
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
+export FE_REPO_PATH=/Users/junsu/Desktop/2-junsu-community-fe
 ./scripts/compose_down_local.sh
 ```
 
@@ -61,6 +63,7 @@ cd /Users/junsu/Desktop/2-junsu-community-be
 docker login
 
 cd /Users/junsu/Desktop/2-junsu-community-be
+FE_DIR=/Users/junsu/Desktop/2-junsu-community-fe \
 REGISTRY=docker.io/<dockerhub_id> TAG=v1 ./scripts/push_images.sh
 ```
 
@@ -75,6 +78,7 @@ REGISTRY=docker.io/<dockerhub_id> TAG=v1 ./scripts/push_images.sh
 `REGISTRY`를 ECR 주소로 지정하면 동일 스크립트 사용 가능:
 
 ```bash
+FE_DIR=/Users/junsu/Desktop/2-junsu-community-fe \
 REGISTRY=<account>.dkr.ecr.ap-northeast-2.amazonaws.com TAG=v1 ./scripts/push_images.sh
 ```
 

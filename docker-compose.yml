@@ -44,8 +44,8 @@ services:
 
   fe:
     build:
-      context: ..
-      dockerfile: ./2-junsu-community-be/docker/fe.Dockerfile
+      context: ${FE_REPO_PATH:-../2-junsu-community-fe}
+      dockerfile: Dockerfile
     image: community-fe:local
     container_name: community-fe
     restart: unless-stopped
@@ -69,7 +69,6 @@ services:
         condition: service_started
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./docker/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
 
