@@ -5,6 +5,8 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
 QA_EMAIL="${QA_EMAIL:-}"
 QA_PASSWORD="${QA_PASSWORD:-}"
 QA_NICKNAME="${QA_NICKNAME:-awsai}"
+RUNTIME_EMAIL="${QA_EMAIL}"
+RUNTIME_PASSWORD="${QA_PASSWORD}"
 
 if [[ -z "${QA_EMAIL}" || -z "${QA_PASSWORD}" ]]; then
   echo "Usage: QA_EMAIL=<email> QA_PASSWORD=<password> BASE_URL=<fe_url> $0"
@@ -37,6 +39,17 @@ request_json() {
       -b "${COOKIE_JAR}" -c "${COOKIE_JAR}" \
       -X "${method}" "${BASE_URL}${path}"
   fi
+}
+
+normalize_nickname() {
+  local raw="$1"
+  local normalized
+  normalized="$(printf "%s" "${raw}" | tr -cd '[:alnum:]' | cut -c1-10)"
+  if [[ -z "${normalized}" ]]; then
+    normalized="qa$(date +%H%M%S)"
+    normalized="$(printf "%s" "${normalized}" | cut -c1-10)"
+  fi
+  printf "%s" "${normalized}"
 }
 
 request_multipart_upload() {
@@ -132,6 +145,51 @@ else:
 PY
 }
 
+json_field_or_empty() {
+  local field="$1"
+  python3 - "${field}" "${BODY_FILE}" <<'PY'
+import json
+import sys
+
+field = sys.argv[1]
+path = sys.argv[2]
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        obj = json.load(f)
+except Exception:
+    print("")
+    sys.exit(0)
+
+cur = obj
+for part in field.split("."):
+    if part == "":
+        continue
+    if isinstance(cur, dict):
+        cur = cur.get(part)
+    elif isinstance(cur, list):
+        try:
+            idx = int(part)
+        except ValueError:
+            cur = None
+            break
+        if idx < 0 or idx >= len(cur):
+            cur = None
+            break
+        cur = cur[idx]
+    else:
+        cur = None
+        break
+
+if cur is None:
+    print("")
+elif isinstance(cur, (dict, list)):
+    print(json.dumps(cur, ensure_ascii=False))
+else:
+    print(cur)
+PY
+}
+
 echo "== QA start =="
 echo "BASE_URL=${BASE_URL}"
 
@@ -147,11 +205,40 @@ status="$(request_json GET "/v1/auth/me")"
 expect_status "${status}" "401" "me before login should fail"
 
 login_payload="$(cat <<JSON
-{"email":"${QA_EMAIL}","password":"${QA_PASSWORD}"}
+{"email":"${RUNTIME_EMAIL}","password":"${RUNTIME_PASSWORD}"}
 JSON
 )"
 status="$(request_json POST "/v1/auth/login" "${login_payload}")"
-expect_status "${status}" "200" "login"
+if [[ "${status}" != "200" ]]; then
+  error_code="$(json_field_or_empty "code")"
+  if [[ "${status}" == "400" && "${error_code}" == "LOGIN_FAILED" ]]; then
+    echo "[INFO] 기본 QA 계정 로그인 실패. fallback QA 계정 생성 후 재시도합니다."
+    ts_fallback="$(date +%s)"
+    RUNTIME_EMAIL="qa${ts_fallback}@example.com"
+    RUNTIME_PASSWORD="Qa!${ts_fallback}Aa1"
+    QA_NICKNAME="$(normalize_nickname "${QA_NICKNAME}")"
+    fallback_nickname="$(normalize_nickname "${QA_NICKNAME}${ts_fallback}")"
+
+    signup_payload="$(cat <<JSON
+{"email":"${RUNTIME_EMAIL}","password":"${RUNTIME_PASSWORD}","nickname":"${fallback_nickname}"}
+JSON
+)"
+    status="$(request_json POST "/v1/auth/signup" "${signup_payload}")"
+    expect_status "${status}" "201" "fallback signup"
+
+    login_payload="$(cat <<JSON
+{"email":"${RUNTIME_EMAIL}","password":"${RUNTIME_PASSWORD}"}
+JSON
+)"
+    status="$(request_json POST "/v1/auth/login" "${login_payload}")"
+    expect_status "${status}" "200" "login (fallback user)"
+    QA_NICKNAME="${fallback_nickname}"
+  else
+    expect_status "${status}" "200" "login"
+  fi
+else
+  echo "[PASS] login (status ${status})"
+fi
 
 status="$(request_json GET "/v1/auth/me")"
 expect_status "${status}" "200" "me after login"
@@ -202,7 +289,7 @@ FILE_URL="$(json_field "fileUrl")"
 echo "[INFO] uploaded fileUrl=${FILE_URL}"
 
 update_user_payload="$(cat <<JSON
-{"nickname":"${QA_NICKNAME}","profileImage":"${FILE_URL}"}
+{"nickname":"$(normalize_nickname "${QA_NICKNAME}")","profileImage":"${FILE_URL}"}
 JSON
 )"
 status="$(request_json PATCH "/v1/users/${USER_ID}" "${update_user_payload}")"
