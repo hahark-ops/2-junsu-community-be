@@ -4,6 +4,19 @@ from models import post_model
 from utils import APIException
 
 
+def _serialize_likes(like_rows: list[dict]) -> list[dict]:
+    serialized = []
+    for row in like_rows or []:
+        serialized.append(
+            {
+                "userId": row.get("userId"),
+                "nickname": row.get("nickname"),
+                "createdAt": row.get("createdAt"),
+            }
+        )
+    return serialized
+
+
 async def get_posts_list(offset: int, limit: int):
     posts = post_model.fetch_posts(offset, limit)
     total_count = post_model.count_posts()
@@ -70,7 +83,7 @@ async def get_post_detail(post_id: int, increase_view: bool = True):
 
     like_count = post_model.count_likes(post_id)
     comment_count = post_model.count_comments(post_id)
-    likes = post_model.fetch_likes(post_id)
+    likes = _serialize_likes(post_model.fetch_likes(post_id))
 
     return {
         "code": "GET_POST_DETAIL_SUCCESS",

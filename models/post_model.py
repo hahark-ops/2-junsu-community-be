@@ -67,7 +67,7 @@ def count_comments(post_id: int) -> int:
 
 def fetch_likes(post_id: int):
     sql = """
-        SELECT l.*, u.userId, u.nickname, u.email
+        SELECT l.*, u.userId, u.nickname
         FROM likes l
         JOIN users u ON l.userEmail = u.email
         WHERE l.postId = %s
@@ -152,4 +152,3 @@ def remove_like(post_id: int, user_email: str):
         except Exception:
             conn.rollback()
             raise
-

@@ -55,5 +55,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     sessionId VARCHAR(255) PRIMARY KEY,
     userEmail VARCHAR(255) NOT NULL,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expiresAt DATETIME NOT NULL,
+    INDEX idx_sessions_expiresAt (expiresAt),
     FOREIGN KEY (userEmail) REFERENCES users(email) ON DELETE CASCADE
 );

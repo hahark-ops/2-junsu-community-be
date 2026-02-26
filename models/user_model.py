@@ -34,22 +34,46 @@ def update_writer_display_name(user_email: str, nickname: str):
             raise
 
 
-def update_user_fields(user_id: int, fields: dict):
-    if not fields:
-        return
-
+def _build_user_update_sql(user_id: int, fields: dict):
     updates = []
     values = []
     for key, value in fields.items():
         updates.append(f"{key} = %s")
         values.append(value)
-
     values.append(user_id)
     sql = f"UPDATE users SET {', '.join(updates)} WHERE userId = %s"
+    return sql, tuple(values)
+
+
+def update_user_fields(user_id: int, fields: dict):
+    if not fields:
+        return
+
+    sql, values = _build_user_update_sql(user_id, fields)
 
     with get_cursor(dictionary=False) as (conn, cursor):
         try:
-            cursor.execute(sql, tuple(values))
+            cursor.execute(sql, values)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def update_user_profile_with_writer_sync(user_id: int, user_email: str, fields: dict):
+    if not fields:
+        return
+
+    sql, values = _build_user_update_sql(user_id, fields)
+
+    with get_cursor(dictionary=False) as (conn, cursor):
+        try:
+            if "nickname" in fields:
+                new_nickname = fields["nickname"]
+                cursor.execute("UPDATE posts SET writer = %s WHERE writerEmail = %s", (new_nickname, user_email))
+                cursor.execute("UPDATE comments SET writer = %s WHERE writerEmail = %s", (new_nickname, user_email))
+
+            cursor.execute(sql, values)
             conn.commit()
         except Exception:
             conn.rollback()

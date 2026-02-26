@@ -100,6 +100,9 @@ async def auth_signup(user_data: dict):
     if not validate_nickname(user_data["nickname"]):
         raise APIException(code="INVALID_NICKNAME_FORMAT", message="닉네임에 공백이나 특수문자를 포함할 수 없습니다.", status_code=400)
 
+    if not validate_nickname_length(user_data["nickname"]):
+        raise APIException(code="NICKNAME_TOO_LONG", message="닉네임은 최대 10자까지만 가능합니다.", status_code=400)
+
     # Legacy soft-deleted 계정 정리: 재가입 시 email/nickname 재사용 가능하도록 처리
     auth_model.purge_deleted_users_for_signup(user_data["email"], user_data["nickname"])
 

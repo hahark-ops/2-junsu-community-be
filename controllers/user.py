@@ -1,3 +1,5 @@
+import mysql.connector
+
 from models import user_model
 from utils import APIException, hash_password, validate_nickname, validate_nickname_length, validate_password, verify_password
 
@@ -65,7 +67,6 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
             raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)
         
         fields_to_update["nickname"] = new_nickname
-        user_model.update_writer_display_name(target_user["email"], new_nickname)
 
     if "profileImage" in update_data:
         fields_to_update["profileimage"] = update_data.get("profileImage")
@@ -73,7 +74,16 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
         fields_to_update["profileimage"] = update_data.get("profileimage")
 
     if fields_to_update:
-        user_model.update_user_fields(user_id, fields_to_update)
+        try:
+            user_model.update_user_profile_with_writer_sync(
+                user_id=user_id,
+                user_email=target_user["email"],
+                fields=fields_to_update,
+            )
+        except mysql.connector.IntegrityError as exc:
+            if getattr(exc, "errno", None) == 1062 and "nickname" in fields_to_update:
+                raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)
+            raise
     
     return {
         "code": "UPDATE_USER_SUCCESS",

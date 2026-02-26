@@ -56,7 +56,10 @@ def get_user_by_email(email: str):
 def create_session(session_id: str, user_email: str):
     with get_cursor(dictionary=False) as (conn, cursor):
         try:
-            cursor.execute("INSERT INTO sessions (sessionId, userEmail) VALUES (%s, %s)", (session_id, user_email))
+            cursor.execute(
+                "INSERT INTO sessions (sessionId, userEmail, expiresAt) VALUES (%s, %s, DATE_ADD(NOW(), INTERVAL 7 DAY))",
+                (session_id, user_email),
+            )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -75,7 +78,10 @@ def delete_session(session_id: str):
 
 def get_user_email_by_session_id(session_id: str):
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT userEmail FROM sessions WHERE sessionId = %s", (session_id,))
+        cursor.execute(
+            "SELECT userEmail FROM sessions WHERE sessionId = %s AND expiresAt > NOW()",
+            (session_id,),
+        )
         row = cursor.fetchone()
         if not row:
             return None
