@@ -4,6 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
 QA_EMAIL="${QA_EMAIL:-}"
 QA_PASSWORD="${QA_PASSWORD:-}"
+QA_NICKNAME="${QA_NICKNAME:-awsai}"
 
 if [[ -z "${QA_EMAIL}" || -z "${QA_PASSWORD}" ]]; then
   echo "Usage: QA_EMAIL=<email> QA_PASSWORD=<password> BASE_URL=<fe_url> $0"
@@ -171,7 +172,7 @@ FILE_URL="$(json_field "fileUrl")"
 echo "[INFO] uploaded fileUrl=${FILE_URL}"
 
 update_user_payload="$(cat <<JSON
-{"nickname":"awsai","profileImage":"${FILE_URL}"}
+{"nickname":"${QA_NICKNAME}","profileImage":"${FILE_URL}"}
 JSON
 )"
 status="$(request_json PATCH "/v1/users/${USER_ID}" "${update_user_payload}")"

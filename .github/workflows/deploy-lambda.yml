@@ -1,0 +1,151 @@
+name: deploy-lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: choice
+        options: [dev, prod]
+        default: dev
+      image_tag:
+        description: Optional image tag override
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+      ECR_REPO_BE_LAMBDA: ${{ vars.ECR_REPO_BE_LAMBDA }}
+      LAMBDA_ALIAS_NAME: ${{ vars.LAMBDA_ALIAS_NAME != '' && vars.LAMBDA_ALIAS_NAME || 'live' }}
+    steps:
+      - name: Checkout BE
+        uses: actions/checkout@v4
+
+      - name: Resolve variables
+        id: resolve
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.environment }}" = "prod" ]; then
+            ROLE_ARN='${{ secrets.AWS_ROLE_ARN_PROD }}'
+            FUNCTION_NAME='${{ vars.LAMBDA_FUNCTION_NAME_PROD }}'
+            API_ENDPOINT='${{ vars.LAMBDA_API_ENDPOINT_PROD }}'
+          else
+            ROLE_ARN='${{ secrets.AWS_ROLE_ARN_DEV }}'
+            FUNCTION_NAME='${{ vars.LAMBDA_FUNCTION_NAME_DEV }}'
+            API_ENDPOINT='${{ vars.LAMBDA_API_ENDPOINT_DEV }}'
+          fi
+
+          if [ -z "${ROLE_ARN}" ] || [ -z "${FUNCTION_NAME}" ] || [ -z "${API_ENDPOINT}" ]; then
+            echo "Missing required lambda deployment variables for ${{ inputs.environment }}"
+            exit 1
+          fi
+
+          TAG_INPUT='${{ inputs.image_tag }}'
+          if [ -n "${TAG_INPUT}" ]; then
+            TAG="${TAG_INPUT}"
+          else
+            TAG="sha-${GITHUB_SHA::7}"
+          fi
+
+          echo "role_arn=${ROLE_ARN}" >> "$GITHUB_OUTPUT"
+          echo "function_name=${FUNCTION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "api_endpoint=${API_ENDPOINT}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.resolve.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Lambda image
+        id: image
+        run: |
+          set -euo pipefail
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPO_BE_LAMBDA}:${{ steps.resolve.outputs.tag }}"
+          docker build -f Dockerfile.lambda -t "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+          echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+
+      - name: Read previous alias version
+        id: prev
+        run: |
+          set -euo pipefail
+          OLD_VERSION=""
+          if aws lambda get-alias --function-name "${{ steps.resolve.outputs.function_name }}" --name "${LAMBDA_ALIAS_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            OLD_VERSION="$(aws lambda get-alias --function-name "${{ steps.resolve.outputs.function_name }}" --name "${LAMBDA_ALIAS_NAME}" --region "${AWS_REGION}" --query 'FunctionVersion' --output text)"
+          fi
+          echo "old_version=${OLD_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Lambda function code
+        run: |
+          set -euo pipefail
+
+          aws lambda update-function-code \
+            --region "${AWS_REGION}" \
+            --function-name "${{ steps.resolve.outputs.function_name }}" \
+            --image-uri "${{ steps.image.outputs.image_uri }}" >/dev/null
+
+          aws lambda wait function-updated \
+            --region "${AWS_REGION}" \
+            --function-name "${{ steps.resolve.outputs.function_name }}"
+
+      - name: Publish and promote alias
+        id: version
+        run: |
+          set -euo pipefail
+
+          NEW_VERSION="$(aws lambda publish-version \
+            --region "${AWS_REGION}" \
+            --function-name "${{ steps.resolve.outputs.function_name }}" \
+            --query 'Version' \
+            --output text)"
+
+          if aws lambda get-alias --function-name "${{ steps.resolve.outputs.function_name }}" --name "${LAMBDA_ALIAS_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            aws lambda update-alias \
+              --region "${AWS_REGION}" \
+              --function-name "${{ steps.resolve.outputs.function_name }}" \
+              --name "${LAMBDA_ALIAS_NAME}" \
+              --function-version "${NEW_VERSION}" >/dev/null
+          else
+            aws lambda create-alias \
+              --region "${AWS_REGION}" \
+              --function-name "${{ steps.resolve.outputs.function_name }}" \
+              --name "${LAMBDA_ALIAS_NAME}" \
+              --function-version "${NEW_VERSION}" >/dev/null
+          fi
+
+          echo "new_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Lambda smoke test
+        run: |
+          ./scripts/test_be_lambda_api.sh "${{ steps.resolve.outputs.api_endpoint }}"
+
+      - name: Rollback alias on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          OLD_VERSION='${{ steps.prev.outputs.old_version }}'
+          if [ -z "${OLD_VERSION}" ]; then
+            echo "No previous alias version found. Skip rollback."
+            exit 0
+          fi
+
+          aws lambda update-alias \
+            --region "${AWS_REGION}" \
+            --function-name "${{ steps.resolve.outputs.function_name }}" \
+            --name "${LAMBDA_ALIAS_NAME}" \
+            --function-version "${OLD_VERSION}" >/dev/null

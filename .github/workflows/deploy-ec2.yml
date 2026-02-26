@@ -1,0 +1,260 @@
+name: deploy-ec2
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: choice
+        options: [dev, prod]
+        default: dev
+      image_tag:
+        description: Optional image tag override
+        required: false
+        type: string
+      rollback_on_fail:
+        description: Rollback to last successful tag on failure
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FE_REPO: ${{ vars.FE_REPO != '' && vars.FE_REPO || format('{0}/2-junsu-community-fe', github.repository_owner) }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+      ECR_REPO_BE: ${{ vars.ECR_REPO_BE }}
+      ECR_REPO_FE: ${{ vars.ECR_REPO_FE }}
+      ECR_REPO_DB: ${{ vars.ECR_REPO_DB }}
+      EC2_DEPLOY_DIR: ${{ vars.EC2_DEPLOY_DIR != '' && vars.EC2_DEPLOY_DIR || '/opt/2-junsu-community-be' }}
+    steps:
+      - name: Checkout BE
+        uses: actions/checkout@v4
+
+      - name: Checkout FE (with token)
+        if: ${{ secrets.FE_REPO_READ_TOKEN != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FE_REPO }}
+          ref: main
+          path: fe-repo
+          token: ${{ secrets.FE_REPO_READ_TOKEN }}
+
+      - name: Checkout FE (public fallback)
+        if: ${{ secrets.FE_REPO_READ_TOKEN == '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FE_REPO }}
+          ref: main
+          path: fe-repo
+
+      - name: Resolve deployment variables
+        id: resolve
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.environment }}" = "prod" ]; then
+            ROLE_ARN='${{ secrets.AWS_ROLE_ARN_PROD }}'
+            INSTANCE_ID='${{ vars.EC2_INSTANCE_ID_PROXY_PROD }}'
+            PARAM_NAME='${{ vars.SSM_PARAM_LAST_TAG_PROD }}'
+            QA_EMAIL='${{ secrets.QA_EMAIL_PROD }}'
+            QA_PASSWORD='${{ secrets.QA_PASSWORD_PROD }}'
+          else
+            ROLE_ARN='${{ secrets.AWS_ROLE_ARN_DEV }}'
+            INSTANCE_ID='${{ vars.EC2_INSTANCE_ID_PROXY_DEV }}'
+            PARAM_NAME='${{ vars.SSM_PARAM_LAST_TAG_DEV }}'
+            QA_EMAIL='${{ secrets.QA_EMAIL_DEV }}'
+            QA_PASSWORD='${{ secrets.QA_PASSWORD_DEV }}'
+          fi
+
+          if [ -z "${ROLE_ARN}" ] || [ -z "${INSTANCE_ID}" ] || [ -z "${PARAM_NAME}" ]; then
+            echo "Missing required environment secrets/variables for ${{ inputs.environment }}"
+            exit 1
+          fi
+
+          if [ -z "${QA_EMAIL}" ] || [ -z "${QA_PASSWORD}" ]; then
+            echo "QA credentials are required for smoke test"
+            exit 1
+          fi
+
+          TAG_INPUT='${{ inputs.image_tag }}'
+          if [ -n "${TAG_INPUT}" ]; then
+            TAG="${TAG_INPUT}"
+          else
+            TAG="sha-${GITHUB_SHA::7}"
+          fi
+
+          echo "role_arn=${ROLE_ARN}" >> "$GITHUB_OUTPUT"
+          echo "instance_id=${INSTANCE_ID}" >> "$GITHUB_OUTPUT"
+          echo "param_name=${PARAM_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "qa_email=${QA_EMAIL}" >> "$GITHUB_OUTPUT"
+          echo "qa_password=${QA_PASSWORD}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.resolve.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve previous successful tag
+        id: prev
+        run: |
+          set -euo pipefail
+          PREV_TAG=""
+          if aws ssm get-parameter --name "${{ steps.resolve.outputs.param_name }}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            PREV_TAG="$(aws ssm get-parameter --name "${{ steps.resolve.outputs.param_name }}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text)"
+          fi
+          echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push BE/FE/DB images
+        env:
+          REGISTRY: ${{ env.ECR_REGISTRY }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          FE_DIR: ${{ github.workspace }}/fe-repo
+          PLATFORM: linux/amd64
+        run: ./scripts/push_images.sh
+
+      - name: Compose image URIs
+        id: img
+        run: |
+          set -euo pipefail
+          echo "be_image=${ECR_REGISTRY}/${ECR_REPO_BE}:${{ steps.resolve.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "fe_image=${ECR_REGISTRY}/${ECR_REPO_FE}:${{ steps.resolve.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "db_image=${ECR_REGISTRY}/${ECR_REPO_DB}:${{ steps.resolve.outputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to EC2 via SSM
+        id: ssm_deploy
+        run: |
+          set -euo pipefail
+
+          PARAMS_JSON="$(mktemp)"
+          jq -n \
+            --arg deploy_dir "${EC2_DEPLOY_DIR}" \
+            --arg aws_region "${AWS_REGION}" \
+            --arg registry "${ECR_REGISTRY}" \
+            --arg be_image "${{ steps.img.outputs.be_image }}" \
+            --arg fe_image "${{ steps.img.outputs.fe_image }}" \
+            --arg db_image "${{ steps.img.outputs.db_image }}" \
+            --arg qa_email "${{ steps.resolve.outputs.qa_email }}" \
+            --arg qa_password "${{ steps.resolve.outputs.qa_password }}" \
+            --arg qa_nickname "awsai-ci-${{ github.run_id }}" \
+            '{commands:[
+              "set -euo pipefail",
+              "cd " + $deploy_dir,
+              "aws ecr get-login-password --region " + $aws_region + " | docker login --username AWS --password-stdin " + $registry,
+              "grep -q \"^BE_IMAGE=\" deploy.proxy.env && sed -i \"s#^BE_IMAGE=.*#BE_IMAGE=" + $be_image + "#\" deploy.proxy.env || echo \"BE_IMAGE=" + $be_image + "\" >> deploy.proxy.env",
+              "grep -q \"^FE_IMAGE=\" deploy.proxy.env && sed -i \"s#^FE_IMAGE=.*#FE_IMAGE=" + $fe_image + "#\" deploy.proxy.env || echo \"FE_IMAGE=" + $fe_image + "\" >> deploy.proxy.env",
+              "grep -q \"^DB_IMAGE=\" deploy.proxy.env && sed -i \"s#^DB_IMAGE=.*#DB_IMAGE=" + $db_image + "#\" deploy.proxy.env || echo \"DB_IMAGE=" + $db_image + "\" >> deploy.proxy.env",
+              "./scripts/proxy_up_single_ec2.sh " + $deploy_dir + "/deploy.proxy.env",
+              "BASE_URL=http://127.0.0.1 QA_EMAIL=\"" + $qa_email + "\" QA_PASSWORD=\"" + $qa_password + "\" QA_NICKNAME=\"" + $qa_nickname + "\" ./scripts/qa_ec2_smoke.sh"
+            ]}' > "$PARAMS_JSON"
+
+          COMMAND_ID="$(aws ssm send-command \
+            --region "${AWS_REGION}" \
+            --instance-ids "${{ steps.resolve.outputs.instance_id }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "community deploy ${{ steps.resolve.outputs.tag }}" \
+            --parameters "file://${PARAMS_JSON}" \
+            --query 'Command.CommandId' \
+            --output text)"
+
+          echo "command_id=${COMMAND_ID}" >> "$GITHUB_OUTPUT"
+
+          set +e
+          aws ssm wait command-executed \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${{ steps.resolve.outputs.instance_id }}"
+          WAIT_EXIT=$?
+          set -e
+
+          STATUS="$(aws ssm get-command-invocation \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${{ steps.resolve.outputs.instance_id }}" \
+            --query 'Status' \
+            --output text)"
+
+          if [ "${WAIT_EXIT}" -ne 0 ] || [ "${STATUS}" != "Success" ]; then
+            echo "SSM deploy failed with status=${STATUS}"
+            aws ssm get-command-invocation \
+              --region "${AWS_REGION}" \
+              --command-id "${COMMAND_ID}" \
+              --instance-id "${{ steps.resolve.outputs.instance_id }}" \
+              --query '{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}'
+            exit 1
+          fi
+
+      - name: Save successful tag
+        if: ${{ success() }}
+        run: |
+          aws ssm put-parameter \
+            --region "${AWS_REGION}" \
+            --name "${{ steps.resolve.outputs.param_name }}" \
+            --type String \
+            --value "${{ steps.resolve.outputs.tag }}" \
+            --overwrite
+
+      - name: Rollback on failure
+        if: ${{ failure() && inputs.rollback_on_fail }}
+        run: |
+          set -euo pipefail
+
+          PREV_TAG='${{ steps.prev.outputs.prev_tag }}'
+          if [ -z "${PREV_TAG}" ]; then
+            echo "No previous tag found. Skip rollback."
+            exit 0
+          fi
+
+          PREV_BE_IMAGE="${ECR_REGISTRY}/${ECR_REPO_BE}:${PREV_TAG}"
+          PREV_FE_IMAGE="${ECR_REGISTRY}/${ECR_REPO_FE}:${PREV_TAG}"
+          PREV_DB_IMAGE="${ECR_REGISTRY}/${ECR_REPO_DB}:${PREV_TAG}"
+
+          PARAMS_JSON="$(mktemp)"
+          jq -n \
+            --arg deploy_dir "${EC2_DEPLOY_DIR}" \
+            --arg aws_region "${AWS_REGION}" \
+            --arg registry "${ECR_REGISTRY}" \
+            --arg be_image "${PREV_BE_IMAGE}" \
+            --arg fe_image "${PREV_FE_IMAGE}" \
+            --arg db_image "${PREV_DB_IMAGE}" \
+            '{commands:[
+              "set -euo pipefail",
+              "cd " + $deploy_dir,
+              "aws ecr get-login-password --region " + $aws_region + " | docker login --username AWS --password-stdin " + $registry,
+              "grep -q \"^BE_IMAGE=\" deploy.proxy.env && sed -i \"s#^BE_IMAGE=.*#BE_IMAGE=" + $be_image + "#\" deploy.proxy.env || echo \"BE_IMAGE=" + $be_image + "\" >> deploy.proxy.env",
+              "grep -q \"^FE_IMAGE=\" deploy.proxy.env && sed -i \"s#^FE_IMAGE=.*#FE_IMAGE=" + $fe_image + "#\" deploy.proxy.env || echo \"FE_IMAGE=" + $fe_image + "\" >> deploy.proxy.env",
+              "grep -q \"^DB_IMAGE=\" deploy.proxy.env && sed -i \"s#^DB_IMAGE=.*#DB_IMAGE=" + $db_image + "#\" deploy.proxy.env || echo \"DB_IMAGE=" + $db_image + "\" >> deploy.proxy.env",
+              "./scripts/proxy_up_single_ec2.sh " + $deploy_dir + "/deploy.proxy.env"
+            ]}' > "$PARAMS_JSON"
+
+          COMMAND_ID="$(aws ssm send-command \
+            --region "${AWS_REGION}" \
+            --instance-ids "${{ steps.resolve.outputs.instance_id }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "community rollback ${PREV_TAG}" \
+            --parameters "file://${PARAMS_JSON}" \
+            --query 'Command.CommandId' \
+            --output text)"
+
+          aws ssm wait command-executed \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${{ steps.resolve.outputs.instance_id }}"
+
+          aws ssm get-command-invocation \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${{ steps.resolve.outputs.instance_id }}" \
+            --query '{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}'

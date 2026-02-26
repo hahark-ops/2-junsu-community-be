@@ -6,12 +6,20 @@ DEFAULT_FE_DIR="${ROOT_DIR}/../2-junsu-community-fe"
 FE_DIR="${FE_DIR:-${DEFAULT_FE_DIR}}"
 
 REGISTRY="${REGISTRY:-}"
-TAG="${TAG:-latest}"
+TAG="${TAG:-}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
 if [[ -z "${REGISTRY}" ]]; then
   echo "REGISTRY 환경변수가 필요합니다. 예: REGISTRY=docker.io/<dockerhub_id>"
   exit 1
+fi
+
+if [[ -z "${TAG}" ]]; then
+  if git -C "${ROOT_DIR}" rev-parse --short HEAD >/dev/null 2>&1; then
+    TAG="sha-$(git -C "${ROOT_DIR}" rev-parse --short HEAD)"
+  else
+    TAG="sha-$(date +%s)"
+  fi
 fi
 
 BE_IMAGE="${REGISTRY}/community-be:${TAG}"
@@ -33,6 +41,7 @@ echo "Push target:"
 echo "  ${BE_IMAGE}"
 echo "  ${FE_IMAGE}"
 echo "  ${DB_IMAGE}"
+echo "FE build dir: ${FE_DIR}"
 
 if [[ "${REGISTRY}" == *.amazonaws.com ]]; then
   AWS_REGION="${AWS_REGION:-$(echo "${REGISTRY}" | awk -F. '{print $(NF-2)}')}"

@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  python-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout BE
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Python compile check
+        run: python -m compileall -q .
+
+  compose-config:
+    runs-on: ubuntu-latest
+    env:
+      FE_REPO: ${{ vars.FE_REPO != '' && vars.FE_REPO || format('{0}/2-junsu-community-fe', github.repository_owner) }}
+    steps:
+      - name: Checkout BE
+        uses: actions/checkout@v4
+
+      - name: Checkout FE (with token)
+        if: ${{ secrets.FE_REPO_READ_TOKEN != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FE_REPO }}
+          ref: main
+          path: fe-repo
+          token: ${{ secrets.FE_REPO_READ_TOKEN }}
+
+      - name: Checkout FE (public fallback)
+        if: ${{ secrets.FE_REPO_READ_TOKEN == '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FE_REPO }}
+          ref: main
+          path: fe-repo
+
+      - name: Validate local compose config
+        env:
+          FE_REPO_PATH: ${{ github.workspace }}/fe-repo
+        run: docker compose -f docker-compose.yml config >/dev/null
+
+      - name: Validate reverse proxy compose config
+        run: docker compose --env-file deploy.proxy.env.example -f docker-compose.reverse-proxy.yml config >/dev/null

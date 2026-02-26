@@ -145,3 +145,57 @@ variable "enable_alb_be_api_rule" {
   type        = bool
   default     = false
 }
+
+variable "enable_ecs" {
+  description = "ECS Fargate 리소스 생성 여부"
+  type        = bool
+  default     = false
+}
+
+variable "ecs_cpu" {
+  description = "ECS Task CPU"
+  type        = number
+  default     = 512
+}
+
+variable "ecs_memory" {
+  description = "ECS Task Memory(MB)"
+  type        = number
+  default     = 1024
+}
+
+variable "ecs_desired_count" {
+  description = "ECS Service desired count"
+  type        = number
+  default     = 1
+}
+
+variable "ecs_container_port" {
+  description = "ECS 컨테이너 포트"
+  type        = number
+  default     = 8000
+}
+
+variable "ecs_assign_public_ip" {
+  description = "ECS task에 public IP 할당 여부"
+  type        = bool
+  default     = false
+}
+
+variable "ecs_health_check_path" {
+  description = "ECS target group health check path"
+  type        = string
+  default     = "/"
+}
+
+variable "ecs_path_patterns" {
+  description = "ALB listener rule path patterns for ECS service"
+  type        = list(string)
+  default     = ["/ecs/*"]
+}
+
+variable "ecs_be_bootstrap_image" {
+  description = "ECS 초기 task definition bootstrap image"
+  type        = string
+  default     = "public.ecr.aws/docker/library/python:3.11-slim"
+}

@@ -26,3 +26,14 @@ fe_repo_url    = ""
 fe_repo_branch = "main"
 be_repo_url    = ""
 be_repo_branch = "main"
+
+# ECS (과제 8 CI/CD용, 기본 비활성)
+enable_ecs             = false
+ecs_cpu                = 512
+ecs_memory             = 1024
+ecs_desired_count      = 1
+ecs_container_port     = 8000
+ecs_assign_public_ip   = false
+ecs_health_check_path  = "/"
+ecs_path_patterns      = ["/ecs/*"]
+ecs_be_bootstrap_image = "public.ecr.aws/docker/library/python:3.11-slim"

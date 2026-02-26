@@ -8,6 +8,7 @@
 
 - [주요 기능](#-주요-기능)
 - [기술 스택](#-기술-스택)
+- [CI/CD (과제 8)](#-cicd-과제-8)
 - [프로젝트 구조](#-프로젝트-구조)
 - [설치 및 실행](#️-설치-및-실행)
 - [페이지 상세](#-페이지-상세)
@@ -23,6 +24,23 @@
 - [관련 저장소](#-관련-저장소)
 
 <br>
+
+---
+
+## 🚀 CI/CD (과제 8)
+
+- 워크플로우 위치: `/Users/junsu/Desktop/2-junsu-community-be/.github/workflows`
+  - `ci.yml`
+  - `deploy-ec2.yml`
+  - `deploy-ecs.yml`
+  - `deploy-lambda.yml`
+- 기준
+  - AWS 인증: OIDC AssumeRole
+  - 이미지 레지스트리: ECR
+  - EC2 배포: 단일 리버스 프록시 + SSM 원격 실행
+  - 실패 시 롤백: EC2 태그 롤백 / ECS task definition 롤백 / Lambda alias 롤백
+- 자세한 변수/시크릿/실행 순서:
+  - `/Users/junsu/Desktop/2-junsu-community-be/docs/CICD_PLAN.md`
 
 ---
 

@@ -57,3 +57,19 @@ output "athena_workgroup_name" {
 output "athena_results_bucket_name" {
   value = aws_s3_bucket.athena_results.id
 }
+
+output "ecs_cluster_name" {
+  value = var.enable_ecs ? aws_ecs_cluster.main[0].name : null
+}
+
+output "ecs_service_name" {
+  value = var.enable_ecs ? aws_ecs_service.be[0].name : null
+}
+
+output "ecs_task_family" {
+  value = var.enable_ecs ? aws_ecs_task_definition.be[0].family : null
+}
+
+output "ecs_target_group_arn" {
+  value = var.enable_ecs ? aws_lb_target_group.ecs_be[0].arn : null
+}

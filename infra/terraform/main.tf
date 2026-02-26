@@ -21,7 +21,9 @@ resource "random_id" "suffix" {
 locals {
   azs = slice(data.aws_availability_zones.available.names, 0, 2)
 
-  name_prefix = lower(replace("${var.project_name}-${var.environment}", "_", "-"))
+  name_prefix        = lower(replace("${var.project_name}-${var.environment}", "_", "-"))
+  ecs_task_family    = "${local.name_prefix}-be-task"
+  ecs_container_name = "${local.name_prefix}-be-container"
 
   ami_id = var.ami_id != "" ? var.ami_id : data.aws_ami.al2023.id
 
@@ -241,6 +243,31 @@ resource "aws_security_group" "be" {
   tags = merge(local.common_tags, { Name = "${local.name_prefix}-be-sg" })
 }
 
+resource "aws_security_group" "ecs_tasks" {
+  count = var.enable_ecs ? 1 : 0
+
+  name_prefix = "${local.name_prefix}-ecs-"
+  description = "ECS task SG"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "ECS api from ALB"
+    from_port       = var.ecs_container_port
+    to_port         = var.ecs_container_port
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(local.common_tags, { Name = "${local.name_prefix}-ecs-sg" })
+}
+
 resource "aws_security_group" "rds" {
   name_prefix = "${local.name_prefix}-rds-"
   description = "RDS SG"
@@ -262,6 +289,18 @@ resource "aws_security_group" "rds" {
   }
 
   tags = merge(local.common_tags, { Name = "${local.name_prefix}-rds-sg" })
+}
+
+resource "aws_security_group_rule" "rds_from_ecs" {
+  count = var.enable_ecs ? 1 : 0
+
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.rds.id
+  source_security_group_id = aws_security_group.ecs_tasks[0].id
+  description              = "MySQL from ECS tasks"
 }
 
 resource "aws_security_group" "efs" {
@@ -445,6 +484,162 @@ resource "aws_iam_role_policy" "lambda_analytics_athena" {
 }
 
 # -----------------------------
+# ECS Fargate (optional)
+# -----------------------------
+resource "aws_ecs_cluster" "main" {
+  count = var.enable_ecs ? 1 : 0
+
+  name = "${local.name_prefix}-ecs-cluster"
+
+  tags = local.common_tags
+}
+
+resource "aws_cloudwatch_log_group" "ecs_be" {
+  count = var.enable_ecs ? 1 : 0
+
+  name              = "/ecs/${local.name_prefix}-be"
+  retention_in_days = 14
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role" "ecs_task_execution" {
+  count = var.enable_ecs ? 1 : 0
+
+  name_prefix = "${local.name_prefix}-ecs-exec-"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = "sts:AssumeRole",
+        Effect = "Allow",
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_default" {
+  count = var.enable_ecs ? 1 : 0
+
+  role       = aws_iam_role.ecs_task_execution[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_iam_role" "ecs_task" {
+  count = var.enable_ecs ? 1 : 0
+
+  name_prefix = "${local.name_prefix}-ecs-task-"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = "sts:AssumeRole",
+        Effect = "Allow",
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_ecs_task_definition" "be" {
+  count = var.enable_ecs ? 1 : 0
+
+  family                   = local.ecs_task_family
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = tostring(var.ecs_cpu)
+  memory                   = tostring(var.ecs_memory)
+  execution_role_arn       = aws_iam_role.ecs_task_execution[0].arn
+  task_role_arn            = aws_iam_role.ecs_task[0].arn
+
+  container_definitions = jsonencode([
+    {
+      name      = local.ecs_container_name
+      image     = var.ecs_be_bootstrap_image
+      essential = true
+      command   = ["python", "-m", "http.server", tostring(var.ecs_container_port)]
+      portMappings = [
+        {
+          containerPort = var.ecs_container_port
+          hostPort      = var.ecs_container_port
+          protocol      = "tcp"
+        }
+      ]
+      environment = [
+        { name = "DB_HOST", value = aws_db_instance.main.address },
+        { name = "DB_PORT", value = tostring(aws_db_instance.main.port) },
+        { name = "DB_USER", value = var.db_username },
+        { name = "DB_PASSWORD", value = var.db_password },
+        { name = "DB_NAME", value = var.db_name },
+        { name = "CORS_ALLOW_ORIGINS", value = var.upload_allowed_origin },
+        { name = "COOKIE_SECURE", value = "false" },
+        { name = "COOKIE_SAMESITE", value = "lax" },
+        { name = "COOKIE_MAX_AGE", value = "604800" },
+        { name = "UPLOAD_PROVIDER", value = "lambda" },
+        { name = "UPLOAD_LAMBDA_API_URL", value = "${aws_apigatewayv2_api.upload_api.api_endpoint}/v1/files/upload-url" },
+        { name = "MAX_UPLOAD_SIZE_BYTES", value = "26214400" },
+        { name = "MAX_PROFILE_UPLOAD_SIZE_BYTES", value = "26214400" },
+        { name = "MAX_POST_UPLOAD_SIZE_BYTES", value = "31457280" },
+        { name = "BCRYPT_ROUNDS", value = "12" }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.ecs_be[0].name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "be"
+        }
+      }
+    }
+  ])
+
+  tags = local.common_tags
+}
+
+resource "aws_ecs_service" "be" {
+  count = var.enable_ecs ? 1 : 0
+
+  name            = "${local.name_prefix}-be-service"
+  cluster         = aws_ecs_cluster.main[0].id
+  task_definition = aws_ecs_task_definition.be[0].arn
+  launch_type     = "FARGATE"
+  desired_count   = var.ecs_desired_count
+
+  deployment_minimum_healthy_percent = 50
+  deployment_maximum_percent         = 200
+
+  network_configuration {
+    subnets          = aws_subnet.private[*].id
+    security_groups  = [aws_security_group.ecs_tasks[0].id]
+    assign_public_ip = var.ecs_assign_public_ip
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.ecs_be[0].arn
+    container_name   = local.ecs_container_name
+    container_port   = var.ecs_container_port
+  }
+
+  depends_on = [
+    aws_lb_listener_rule.ecs_api,
+    aws_iam_role_policy_attachment.ecs_task_execution_default
+  ]
+
+  tags = local.common_tags
+}
+
+# -----------------------------
 # EC2 (FE / BE) + Elastic IP
 # -----------------------------
 resource "aws_instance" "be" {
@@ -577,6 +772,29 @@ resource "aws_lb_target_group" "be" {
   tags = local.common_tags
 }
 
+resource "aws_lb_target_group" "ecs_be" {
+  count = var.enable_ecs ? 1 : 0
+
+  name        = "${local.name_prefix}-ecs-tg"
+  port        = var.ecs_container_port
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    enabled             = true
+    path                = var.ecs_health_check_path
+    protocol            = "HTTP"
+    matcher             = "200-399"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+  }
+
+  tags = local.common_tags
+}
+
 resource "aws_lb_target_group_attachment" "fe" {
   target_group_arn = aws_lb_target_group.fe.arn
   target_id        = aws_instance.fe.id
@@ -614,6 +832,24 @@ resource "aws_lb_listener_rule" "be_api" {
   condition {
     path_pattern {
       values = ["/v1/*", "/docs*", "/openapi.json"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "ecs_api" {
+  count = var.enable_ecs ? 1 : 0
+
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 20
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ecs_be[0].arn
+  }
+
+  condition {
+    path_pattern {
+      values = var.ecs_path_patterns
     }
   }
 }
