@@ -18,13 +18,28 @@ on:
         required: true
         type: boolean
         default: true
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
 
 permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: deploy-ec2-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref_name || 'manual' }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'develop')
+      )
     runs-on: ubuntu-latest
     env:
       FE_REPO: ${{ vars.FE_REPO != '' && vars.FE_REPO || format('{0}/2-junsu-community-fe', github.repository_owner) }}
@@ -34,9 +49,13 @@ jobs:
       ECR_REPO_FE: ${{ vars.ECR_REPO_FE }}
       ECR_REPO_DB: ${{ vars.ECR_REPO_DB }}
       EC2_DEPLOY_DIR: ${{ vars.EC2_DEPLOY_DIR != '' && vars.EC2_DEPLOY_DIR || '/opt/2-junsu-community-be' }}
+      EVENT_NAME: ${{ github.event_name }}
+      WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout BE
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Checkout FE
         uses: actions/checkout@v4
@@ -44,14 +63,30 @@ jobs:
           repository: ${{ env.FE_REPO }}
           ref: main
           path: fe-repo
+          token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
 
       - name: Resolve deployment variables
         id: resolve
         run: |
           set -euo pipefail
 
+          DEPLOY_ENV="dev"
+          TAG_INPUT=""
+          ROLLBACK_ON_FAIL="true"
+          SOURCE_SHA="${GITHUB_SHA}"
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            DEPLOY_ENV='${{ inputs.environment }}'
+            TAG_INPUT='${{ inputs.image_tag }}'
+            ROLLBACK_ON_FAIL='${{ inputs.rollback_on_fail }}'
+          elif [ "${EVENT_NAME}" = "workflow_run" ]; then
+            if [ -n "${WORKFLOW_RUN_HEAD_SHA}" ]; then
+              SOURCE_SHA="${WORKFLOW_RUN_HEAD_SHA}"
+            fi
+          fi
+
           RUN_SMOKE="true"
-          if [ "${{ inputs.environment }}" = "prod" ]; then
+          if [ "${DEPLOY_ENV}" = "prod" ]; then
             ROLE_ARN='${{ secrets.AWS_ROLE_ARN_PROD }}'
             INSTANCE_ID='${{ vars.EC2_INSTANCE_ID_PROXY_PROD }}'
             PARAM_NAME='${{ vars.SSM_PARAM_LAST_TAG_PROD }}'
@@ -66,12 +101,12 @@ jobs:
           fi
 
           if [ -z "${ROLE_ARN}" ] || [ -z "${INSTANCE_ID}" ] || [ -z "${PARAM_NAME}" ]; then
-            echo "Missing required environment secrets/variables for ${{ inputs.environment }}"
+            echo "Missing required environment secrets/variables for ${DEPLOY_ENV}"
             exit 1
           fi
 
           if [ -z "${QA_EMAIL}" ] || [ -z "${QA_PASSWORD}" ]; then
-            if [ "${{ inputs.environment }}" = "prod" ]; then
+            if [ "${DEPLOY_ENV}" = "prod" ]; then
               RUN_SMOKE="false"
               echo "QA credentials for prod are missing. deploy only mode."
             else
@@ -80,17 +115,19 @@ jobs:
             fi
           fi
 
-          TAG_INPUT='${{ inputs.image_tag }}'
           if [ -n "${TAG_INPUT}" ]; then
             TAG="${TAG_INPUT}"
           else
-            TAG="sha-${GITHUB_SHA::7}"
+            TAG="sha-${SOURCE_SHA::7}"
           fi
 
+          echo "deploy_env=${DEPLOY_ENV}" >> "$GITHUB_OUTPUT"
           echo "role_arn=${ROLE_ARN}" >> "$GITHUB_OUTPUT"
           echo "instance_id=${INSTANCE_ID}" >> "$GITHUB_OUTPUT"
           echo "param_name=${PARAM_NAME}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "rollback_on_fail=${ROLLBACK_ON_FAIL}" >> "$GITHUB_OUTPUT"
           echo "qa_email=${QA_EMAIL}" >> "$GITHUB_OUTPUT"
           echo "qa_password=${QA_PASSWORD}" >> "$GITHUB_OUTPUT"
           echo "run_smoke=${RUN_SMOKE}" >> "$GITHUB_OUTPUT"
@@ -140,7 +177,7 @@ jobs:
             --arg deploy_dir "${EC2_DEPLOY_DIR}" \
             --arg aws_region "${AWS_REGION}" \
             --arg registry "${ECR_REGISTRY}" \
-            --arg commit_sha "${GITHUB_SHA}" \
+            --arg commit_sha "${{ steps.resolve.outputs.source_sha }}" \
             --arg be_image "${{ steps.img.outputs.be_image }}" \
             --arg fe_image "${{ steps.img.outputs.fe_image }}" \
             --arg db_image "${{ steps.img.outputs.db_image }}" \
@@ -212,7 +249,7 @@ jobs:
             --overwrite
 
       - name: Rollback on failure
-        if: ${{ failure() && inputs.rollback_on_fail }}
+        if: ${{ failure() && steps.resolve.outputs.rollback_on_fail == 'true' }}
         run: |
           set -euo pipefail
 
@@ -231,7 +268,7 @@ jobs:
             --arg deploy_dir "${EC2_DEPLOY_DIR}" \
             --arg aws_region "${AWS_REGION}" \
             --arg registry "${ECR_REGISTRY}" \
-            --arg commit_sha "${GITHUB_SHA}" \
+            --arg commit_sha "${{ steps.resolve.outputs.source_sha }}" \
             --arg be_image "${PREV_BE_IMAGE}" \
             --arg fe_image "${PREV_FE_IMAGE}" \
             --arg db_image "${PREV_DB_IMAGE}" \

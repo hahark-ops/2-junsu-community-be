@@ -37,7 +37,10 @@
 - 기준
   - AWS 인증: OIDC AssumeRole
   - 이미지 레지스트리: ECR
-  - EC2 배포: 단일 리버스 프록시 + SSM 원격 실행
+  - EC2 배포: 단일 리버스 프록시 + SSM 원격 실행 (기본 운영 경로)
+  - 자동 배포: `main/develop` push -> `ci` 성공 시 `deploy-ec2` 자동 실행
+  - CI 게이트: compile/compose 검증 + 로컬 compose 스모크 테스트
+  - ECS/Lambda: 과제 증빙용 수동 실행 경로 유지
   - 실패 시 롤백: EC2 태그 롤백 / ECS task definition 롤백 / Lambda alias 롤백
 - 자세한 변수/시크릿/실행 순서:
   - `/Users/junsu/Desktop/2-junsu-community-be/docs/CICD_PLAN.md`

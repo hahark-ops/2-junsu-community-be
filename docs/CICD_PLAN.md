@@ -1,13 +1,15 @@
 # CI/CD 실행 가이드 (과제 8)
 
-최종 업데이트: 2026-02-26 (KST)
+최종 업데이트: 2026-02-27 (KST)
 
 ## 1. 운영 기준
 
 - 단일 EC2 리버스 프록시 배포를 기본 경로로 사용
 - AWS 인증은 GitHub OIDC AssumeRole 고정
 - 이미지 레지스트리는 ECR 통일
-- 배포는 `workflow_dispatch` 수동 트리거 중심
+- `main/develop` push -> `ci` 성공 시 `deploy-ec2` 자동 실행
+- `workflow_dispatch` 수동 배포도 유지
+- ECS/Lambda는 과제 8 증빙용 수동 실행 경로로 유지
 - QA 후 기본 정책은 `stop`
 
 ## 2. 워크플로우 파일
@@ -26,10 +28,13 @@
   - Python compile check
   - `docker-compose.yml` config check (FE cross-repo checkout 포함)
   - `docker-compose.reverse-proxy.yml` config check
+  - 로컬 compose 기동 + `qa_ec2_smoke.sh` 스모크 테스트
 
 ## 3.2 `deploy-ec2.yml`
 
-- 트리거: `workflow_dispatch`
+- 트리거:
+  - `workflow_run` (`ci` 성공, push 이벤트, `main/develop`)
+  - `workflow_dispatch` (수동)
 - 입력:
   - `environment` (`dev|prod`)
   - `image_tag` (옵션)
@@ -43,6 +48,7 @@
   6. EC2 내부 smoke (`qa_ec2_smoke.sh`) 실행
   7. 성공 태그를 SSM Parameter에 저장
   8. 실패 시 이전 성공 태그로 자동 롤백
+  9. `concurrency`로 동일 브랜치 중복 배포 방지
 
 ## 3.3 `deploy-ecs.yml`
 
@@ -115,9 +121,10 @@
 ## 6. Terraform 연동 포인트
 
 - `/Users/junsu/Desktop/2-junsu-community-be/infra/terraform/variables.tf`
-  - `enable_ecs` 및 ECS 관련 변수 추가
+  - `enable_ecs`, `enable_rds` 및 ECS 관련 변수 추가
 - `/Users/junsu/Desktop/2-junsu-community-be/infra/terraform/main.tf`
   - ECS Cluster/TaskDefinition/Service/LogGroup/ALB TargetGroup 추가 (옵션)
+  - RDS 리소스 옵션화(`enable_rds=false`일 때 미생성)
 - `/Users/junsu/Desktop/2-junsu-community-be/infra/terraform/outputs.tf`
   - `ecs_cluster_name`, `ecs_service_name`, `ecs_task_family`, `ecs_target_group_arn` 출력
 
@@ -129,8 +136,8 @@
 
 ## 8. 점검 순서
 
-1. `ci.yml` green 확인
-2. `deploy-ec2.yml` dev 배포/롤백 리허설
+1. `develop/main` push -> `ci.yml` green 확인
+2. `ci` 완료 후 `deploy-ec2.yml` 자동 실행/성공 확인
 3. `deploy-lambda.yml` dev 배포/alias 롤백 리허설
 4. `enable_ecs=true` 후 `deploy-ecs.yml` dev 검증
 5. 비용 통제 정책대로 QA 후 stop 적용

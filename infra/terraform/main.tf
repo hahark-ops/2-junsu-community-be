@@ -31,6 +31,14 @@ locals {
   trail_bucket_name          = var.cloudtrail_bucket_name != "" ? var.cloudtrail_bucket_name : "${local.name_prefix}-trail-${random_id.suffix.hex}"
   athena_results_bucket_name = var.athena_results_bucket_name != "" ? var.athena_results_bucket_name : "${local.name_prefix}-athena-${random_id.suffix.hex}"
 
+  rds_endpoint = try(aws_db_instance.main[0].address, null)
+  rds_port     = try(tostring(aws_db_instance.main[0].port), "3306")
+
+  db_host = var.enable_rds ? local.rds_endpoint : (
+    trimspace(var.db_host_override) != "" ? trimspace(var.db_host_override) : "db"
+  )
+  db_port = var.enable_rds ? local.rds_port : "3306"
+
   common_tags = {
     Project     = var.project_name
     Environment = var.environment
@@ -269,6 +277,8 @@ resource "aws_security_group" "ecs_tasks" {
 }
 
 resource "aws_security_group" "rds" {
+  count = var.enable_rds ? 1 : 0
+
   name_prefix = "${local.name_prefix}-rds-"
   description = "RDS SG"
   vpc_id      = aws_vpc.main.id
@@ -292,13 +302,13 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_security_group_rule" "rds_from_ecs" {
-  count = var.enable_ecs ? 1 : 0
+  count = var.enable_rds && var.enable_ecs ? 1 : 0
 
   type                     = "ingress"
   from_port                = 3306
   to_port                  = 3306
   protocol                 = "tcp"
-  security_group_id        = aws_security_group.rds.id
+  security_group_id        = aws_security_group.rds[0].id
   source_security_group_id = aws_security_group.ecs_tasks[0].id
   description              = "MySQL from ECS tasks"
 }
@@ -577,8 +587,8 @@ resource "aws_ecs_task_definition" "be" {
         }
       ]
       environment = [
-        { name = "DB_HOST", value = aws_db_instance.main.address },
-        { name = "DB_PORT", value = tostring(aws_db_instance.main.port) },
+        { name = "DB_HOST", value = local.db_host },
+        { name = "DB_PORT", value = local.db_port },
         { name = "DB_USER", value = var.db_username },
         { name = "DB_PASSWORD", value = var.db_password },
         { name = "DB_NAME", value = var.db_name },
@@ -858,6 +868,8 @@ resource "aws_lb_listener_rule" "ecs_api" {
 # RDS
 # -----------------------------
 resource "aws_db_subnet_group" "main" {
+  count = var.enable_rds ? 1 : 0
+
   name       = "${local.name_prefix}-db-subnet-group"
   subnet_ids = aws_subnet.private[*].id
 
@@ -867,6 +879,8 @@ resource "aws_db_subnet_group" "main" {
 }
 
 resource "aws_db_instance" "main" {
+  count = var.enable_rds ? 1 : 0
+
   identifier                 = "${local.name_prefix}-mysql"
   engine                     = "mysql"
   engine_version             = "8.0"
@@ -876,8 +890,8 @@ resource "aws_db_instance" "main" {
   db_name                    = var.db_name
   username                   = var.db_username
   password                   = var.db_password
-  db_subnet_group_name       = aws_db_subnet_group.main.name
-  vpc_security_group_ids     = [aws_security_group.rds.id]
+  db_subnet_group_name       = aws_db_subnet_group.main[0].name
+  vpc_security_group_ids     = [aws_security_group.rds[0].id]
   publicly_accessible        = false
   backup_retention_period    = 1
   skip_final_snapshot        = true

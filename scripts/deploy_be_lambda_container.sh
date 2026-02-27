@@ -60,8 +60,8 @@ ROLE_NAME="${ROLE_NAME:-${NAME_PREFIX}-be-lambda-role}"
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text --region "${AWS_REGION}")"
 IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
 
-RDS_ENDPOINT="${RDS_ENDPOINT:-${RDS_HOST:-$(tf_output_raw rds_endpoint)}}"
-RDS_PORT="${RDS_PORT:-$(tf_output_raw rds_port)}"
+RDS_ENDPOINT="${RDS_ENDPOINT:-${RDS_HOST:-${DB_HOST:-$(tf_output_raw rds_endpoint)}}}"
+RDS_PORT="${RDS_PORT:-${DB_PORT:-$(tf_output_raw rds_port)}}"
 UPLOAD_LAMBDA_API_URL="${UPLOAD_LAMBDA_API_URL:-$(tf_output_raw upload_api_route_url)}"
 FE_PUBLIC_IP="${FE_PUBLIC_IP:-$(tf_output_raw fe_public_ip)}"
 ALB_DNS_NAME="${ALB_DNS_NAME:-$(tf_output_raw alb_dns_name)}"
@@ -69,8 +69,8 @@ VPC_ID="${VPC_ID:-$(tf_output_raw vpc_id)}"
 
 if [[ -z "${RDS_ENDPOINT}" || -z "${RDS_PORT}" || -z "${VPC_ID}" || -z "${UPLOAD_LAMBDA_API_URL}" ]]; then
   echo "필수 값이 부족합니다. 아래 값들을 env로 지정하거나 terraform output이 필요합니다."
-  echo "- RDS_ENDPOINT"
-  echo "- RDS_PORT"
+  echo "- RDS_ENDPOINT (또는 DB_HOST)"
+  echo "- RDS_PORT (또는 DB_PORT)"
   echo "- VPC_ID"
   echo "- UPLOAD_LAMBDA_API_URL"
   exit 1

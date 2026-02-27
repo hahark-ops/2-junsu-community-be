@@ -9,9 +9,11 @@ admin_cidr = "0.0.0.0/0"
 key_pair_name = "your-keypair-name"
 
 # RDS
+enable_rds  = false
 db_name     = "community_db"
 db_username = "community_user"
 db_password = "change_me_please"
+db_host_override = ""
 
 # 선택: 비우면 Terraform이 랜덤 suffix를 붙여 생성
 upload_bucket_name     = ""

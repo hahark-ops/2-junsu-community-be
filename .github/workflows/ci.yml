@@ -46,6 +46,7 @@ jobs:
           repository: ${{ env.FE_REPO }}
           ref: main
           path: fe-repo
+          token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
 
       - name: Validate local compose config
         env:
@@ -54,3 +55,39 @@ jobs:
 
       - name: Validate reverse proxy compose config
         run: docker compose --env-file deploy.proxy.env.example -f docker-compose.reverse-proxy.yml config >/dev/null
+
+  smoke-test:
+    needs: [python-compile, compose-config]
+    runs-on: ubuntu-latest
+    env:
+      FE_REPO: ${{ vars.FE_REPO != '' && vars.FE_REPO || format('{0}/2-junsu-community-fe', github.repository_owner) }}
+    steps:
+      - name: Checkout BE
+        uses: actions/checkout@v4
+
+      - name: Checkout FE
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FE_REPO }}
+          ref: main
+          path: fe-repo
+          token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
+
+      - name: Start local stack for smoke test
+        env:
+          FE_REPO_PATH: ${{ github.workspace }}/fe-repo
+        run: |
+          docker compose up -d --build
+          ./scripts/run_migrations.sh "${GITHUB_WORKSPACE}/docker-compose.yml"
+
+      - name: Run API smoke tests
+        run: |
+          QA_EMAIL=ci-bootstrap@example.com \
+          QA_PASSWORD='Qa!12345Aa' \
+          QA_NICKNAME="ci${GITHUB_RUN_ID}" \
+          BASE_URL=http://127.0.0.1 \
+          ./scripts/qa_ec2_smoke.sh
+
+      - name: Teardown local stack
+        if: ${{ always() }}
+        run: docker compose down -v --remove-orphans

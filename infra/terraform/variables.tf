@@ -56,6 +56,18 @@ variable "db_instance_class" {
   default     = "db.t3.micro"
 }
 
+variable "enable_rds" {
+  description = "RDS 리소스 생성 여부"
+  type        = bool
+  default     = true
+}
+
+variable "db_host_override" {
+  description = "RDS 비사용 시 DB 호스트(예: EC2 내부 MySQL IP)"
+  type        = string
+  default     = ""
+}
+
 variable "db_name" {
   description = "RDS DB 이름"
   type        = string

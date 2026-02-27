@@ -19,11 +19,11 @@ output "be_private_ip" {
 }
 
 output "rds_endpoint" {
-  value = aws_db_instance.main.address
+  value = var.enable_rds ? aws_db_instance.main[0].address : null
 }
 
 output "rds_port" {
-  value = aws_db_instance.main.port
+  value = var.enable_rds ? aws_db_instance.main[0].port : null
 }
 
 output "upload_bucket_name" {
