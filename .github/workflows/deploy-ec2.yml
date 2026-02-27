@@ -49,6 +49,7 @@ jobs:
       ECR_REPO_FE: ${{ vars.ECR_REPO_FE }}
       ECR_REPO_DB: ${{ vars.ECR_REPO_DB }}
       EC2_DEPLOY_DIR: ${{ vars.EC2_DEPLOY_DIR != '' && vars.EC2_DEPLOY_DIR || '/opt/2-junsu-community-be' }}
+      EC2_AUTO_START: ${{ vars.EC2_AUTO_START != '' && vars.EC2_AUTO_START || 'true' }}
       EVENT_NAME: ${{ github.event_name }}
       WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
@@ -151,6 +152,60 @@ jobs:
           fi
           echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Ensure target EC2 is ready for deployment
+        id: ec2_ready
+        run: |
+          set -euo pipefail
+
+          INSTANCE_ID="${{ steps.resolve.outputs.instance_id }}"
+          AUTO_START="${EC2_AUTO_START}"
+
+          STATE="$(aws ec2 describe-instances \
+            --region "${AWS_REGION}" \
+            --instance-ids "${INSTANCE_ID}" \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text 2>/dev/null || true)"
+
+          if [ -z "${STATE}" ] || [ "${STATE}" = "None" ] || [ "${STATE}" = "terminated" ]; then
+            echo "Invalid EC2 instance id for deploy: ${INSTANCE_ID} (state=${STATE})"
+            echo "Update EC2_INSTANCE_ID_PROXY_DEV/PROD to a valid instance id."
+            exit 1
+          fi
+
+          if [ "${STATE}" = "stopped" ]; then
+            if [ "${AUTO_START}" = "true" ]; then
+              echo "Instance is stopped. Starting ${INSTANCE_ID}..."
+              aws ec2 start-instances --region "${AWS_REGION}" --instance-ids "${INSTANCE_ID}" >/dev/null
+              aws ec2 wait instance-running --region "${AWS_REGION}" --instance-ids "${INSTANCE_ID}"
+            else
+              echo "Instance is stopped and EC2_AUTO_START=false"
+              exit 1
+            fi
+          elif [ "${STATE}" = "pending" ] || [ "${STATE}" = "stopping" ]; then
+            echo "Instance state is ${STATE}. Waiting until running..."
+            aws ec2 wait instance-running --region "${AWS_REGION}" --instance-ids "${INSTANCE_ID}"
+          fi
+
+          echo "Waiting for SSM online..."
+          ONLINE="false"
+          for _ in $(seq 1 30); do
+            PING_STATUS="$(aws ssm describe-instance-information \
+              --region "${AWS_REGION}" \
+              --filters "Key=InstanceIds,Values=${INSTANCE_ID}" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --output text 2>/dev/null || true)"
+            if [ "${PING_STATUS}" = "Online" ]; then
+              ONLINE="true"
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "${ONLINE}" != "true" ]; then
+            echo "SSM is not online for instance ${INSTANCE_ID}"
+            exit 1
+          fi
+
       - name: Build and push BE/FE/DB images
         env:
           REGISTRY: ${{ env.ECR_REGISTRY }}
@@ -249,7 +304,7 @@ jobs:
             --overwrite
 
       - name: Rollback on failure
-        if: ${{ failure() && steps.resolve.outputs.rollback_on_fail == 'true' }}
+        if: ${{ failure() && steps.resolve.outputs.rollback_on_fail == 'true' && steps.ssm_deploy.outcome == 'failure' }}
         run: |
           set -euo pipefail
 
