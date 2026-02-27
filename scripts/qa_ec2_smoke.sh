@@ -193,8 +193,7 @@ PY
 echo "== QA start =="
 echo "BASE_URL=${BASE_URL}"
 
-status="$(request_json GET "/")"
-expect_status "${status}" "200" "health check"
+wait_for_status GET "/" "200" "health check" 30 2
 
 wait_for_status GET "/v1/posts" "200" "public posts api" 20 2
 
