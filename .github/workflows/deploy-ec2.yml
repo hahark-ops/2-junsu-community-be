@@ -230,6 +230,7 @@ jobs:
           PARAMS_JSON="$(mktemp)"
           jq -n \
             --arg deploy_dir "${EC2_DEPLOY_DIR}" \
+            --arg repo_url "https://github.com/${{ github.repository }}.git" \
             --arg aws_region "${AWS_REGION}" \
             --arg registry "${ECR_REGISTRY}" \
             --arg commit_sha "${{ steps.resolve.outputs.source_sha }}" \
@@ -242,6 +243,8 @@ jobs:
             --arg run_smoke "${{ steps.resolve.outputs.run_smoke }}" \
             '{commands:[
               "set -euo pipefail",
+              "if ! command -v git >/dev/null 2>&1; then if command -v dnf >/dev/null 2>&1; then dnf install -y git; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y git; else echo \"git 설치 실패\"; exit 1; fi; fi",
+              "if [ ! -d \"" + $deploy_dir + "/.git\" ]; then mkdir -p $(dirname \"" + $deploy_dir + "\"); git clone " + $repo_url + " \"" + $deploy_dir + "\"; fi",
               "cd " + $deploy_dir,
               "git fetch --all --prune",
               "git checkout -f " + $commit_sha,
@@ -321,6 +324,7 @@ jobs:
           PARAMS_JSON="$(mktemp)"
           jq -n \
             --arg deploy_dir "${EC2_DEPLOY_DIR}" \
+            --arg repo_url "https://github.com/${{ github.repository }}.git" \
             --arg aws_region "${AWS_REGION}" \
             --arg registry "${ECR_REGISTRY}" \
             --arg commit_sha "${{ steps.resolve.outputs.source_sha }}" \
@@ -329,6 +333,8 @@ jobs:
             --arg db_image "${PREV_DB_IMAGE}" \
             '{commands:[
               "set -euo pipefail",
+              "if ! command -v git >/dev/null 2>&1; then if command -v dnf >/dev/null 2>&1; then dnf install -y git; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y git; else echo \"git 설치 실패\"; exit 1; fi; fi",
+              "if [ ! -d \"" + $deploy_dir + "/.git\" ]; then mkdir -p $(dirname \"" + $deploy_dir + "\"); git clone " + $repo_url + " \"" + $deploy_dir + "\"; fi",
               "cd " + $deploy_dir,
               "git fetch --all --prune",
               "git checkout -f " + $commit_sha,
