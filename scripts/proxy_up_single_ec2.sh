@@ -20,15 +20,31 @@ fi
 
 cd "${ROOT_DIR}"
 
+# 일부 AMI의 구버전 docker compose는 --env-file 옵션을 지원하지 않음.
+compose_cmd() {
+  if docker compose --help 2>/dev/null | grep -q -- '--env-file'; then
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+    return
+  fi
+
+  (
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+    docker compose -f "${COMPOSE_FILE}" "$@"
+  )
+}
+
 # 이전 수동 실행/타 경로 compose 잔존 컨테이너 이름 충돌 방지
 for container in community-db community-be community-fe community-nginx; do
   docker rm -f "${container}" >/dev/null 2>&1 || true
 done
 
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" pull
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
+compose_cmd pull
+compose_cmd up -d --remove-orphans
 ./scripts/run_migrations.sh "${COMPOSE_FILE}" "${ENV_FILE}"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps
+compose_cmd ps
 
 echo
 echo "리버스 프록시 배포 완료"

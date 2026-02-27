@@ -22,20 +22,35 @@ if [[ ! -f "${SCHEMA_FILE}" ]]; then
   exit 1
 fi
 
-compose_cmd=(docker compose)
-if [[ -n "${ENV_FILE}" ]]; then
-  if [[ ! -f "${ENV_FILE}" ]]; then
-    echo "env 파일이 없습니다: ${ENV_FILE}"
-    exit 1
-  fi
-  compose_cmd+=(--env-file "${ENV_FILE}")
+if [[ -n "${ENV_FILE}" && ! -f "${ENV_FILE}" ]]; then
+  echo "env 파일이 없습니다: ${ENV_FILE}"
+  exit 1
 fi
-compose_cmd+=(-f "${COMPOSE_FILE}")
+
+compose_exec() {
+  if [[ -n "${ENV_FILE}" ]] && docker compose --help 2>/dev/null | grep -q -- '--env-file'; then
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+    return
+  fi
+
+  if [[ -n "${ENV_FILE}" ]]; then
+    (
+      set -a
+      # shellcheck disable=SC1090
+      source "${ENV_FILE}"
+      set +a
+      docker compose -f "${COMPOSE_FILE}" "$@"
+    )
+    return
+  fi
+
+  docker compose -f "${COMPOSE_FILE}" "$@"
+}
 
 echo "DB 준비 상태 확인 중..."
 db_ready=0
 for _ in {1..30}; do
-  if "${compose_cmd[@]}" exec -T db sh -lc 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
+  if compose_exec exec -T db sh -lc 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
     db_ready=1
     break
   fi
@@ -47,13 +62,13 @@ if [[ "${db_ready}" -ne 1 ]]; then
   exit 1
 fi
 
-db_name="$("${compose_cmd[@]}" exec -T db sh -lc 'printf "%s" "${MYSQL_DATABASE:-}"')"
+db_name="$(compose_exec exec -T db sh -lc 'printf "%s" "${MYSQL_DATABASE:-}"')"
 if [[ -z "${db_name}" ]]; then
   echo "MYSQL_DATABASE 값이 비어 있어 마이그레이션을 적용할 수 없습니다."
   exit 1
 fi
 
-status="$("${compose_cmd[@]}" exec -T db sh -lc '
+status="$(compose_exec exec -T db sh -lc '
 mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
 SELECT
   (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''sessions'\''),
@@ -67,7 +82,7 @@ IFS=$'\t' read -r sessions_table_exists expires_column_exists expires_not_null_e
 
 if [[ "${sessions_table_exists:-0}" -eq 0 ]]; then
   echo "sessions 테이블이 없어 schema.sql을 먼저 적용합니다..."
-  "${compose_cmd[@]}" exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${SCHEMA_FILE}"
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${SCHEMA_FILE}"
   echo "스키마 적용 완료: $(basename "${SCHEMA_FILE}")"
   sessions_table_exists=1
   expires_column_exists=1
@@ -81,5 +96,5 @@ if [[ "${expires_column_exists:-0}" -eq 1 && "${expires_not_null_exists:-0}" -eq
 fi
 
 echo "세션 만료 마이그레이션 적용 중..."
-"${compose_cmd[@]}" exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${MIGRATION_FILE}"
+compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${MIGRATION_FILE}"
 echo "마이그레이션 적용 완료: $(basename "${MIGRATION_FILE}")"

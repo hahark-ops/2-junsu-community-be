@@ -41,7 +41,22 @@ if [[ "${ECR_LOGIN}" == "true" ]]; then
 fi
 
 cd "${ROOT_DIR}"
-docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml pull
-docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml up -d
+compose_cmd() {
+  if docker compose --help 2>/dev/null | grep -q -- '--env-file'; then
+    docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml "$@"
+    return
+  fi
+
+  (
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+    docker compose -f docker-compose.deploy.yml "$@"
+  )
+}
+
+compose_cmd pull
+compose_cmd up -d
 ./scripts/run_migrations.sh "${ROOT_DIR}/docker-compose.deploy.yml" "${ENV_FILE}"
-docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml ps
+compose_cmd ps
