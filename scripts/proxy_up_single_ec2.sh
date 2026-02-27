@@ -20,10 +20,19 @@ fi
 
 cd "${ROOT_DIR}"
 
-# 일부 AMI의 구버전 docker compose는 --env-file 옵션을 지원하지 않음.
+# AMI별로 docker compose 플러그인/standalone(docker-compose) 차이를 흡수.
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker-compose)
+else
+  echo "docker compose 또는 docker-compose를 찾을 수 없습니다."
+  exit 1
+fi
+
 compose_cmd() {
-  if docker compose --help 2>/dev/null | grep -q -- '--env-file'; then
-    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+  if "${COMPOSE_BIN[@]}" --help 2>/dev/null | grep -q -- '--env-file'; then
+    "${COMPOSE_BIN[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
     return
   fi
 
@@ -32,7 +41,7 @@ compose_cmd() {
     # shellcheck disable=SC1090
     source "${ENV_FILE}"
     set +a
-    docker compose -f "${COMPOSE_FILE}" "$@"
+    "${COMPOSE_BIN[@]}" -f "${COMPOSE_FILE}" "$@"
   )
 }
 

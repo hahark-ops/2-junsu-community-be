@@ -41,9 +41,18 @@ if [[ "${ECR_LOGIN}" == "true" ]]; then
 fi
 
 cd "${ROOT_DIR}"
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker-compose)
+else
+  echo "docker compose 또는 docker-compose를 찾을 수 없습니다."
+  exit 1
+fi
+
 compose_cmd() {
-  if docker compose --help 2>/dev/null | grep -q -- '--env-file'; then
-    docker compose --env-file "${ENV_FILE}" -f docker-compose.deploy.yml "$@"
+  if "${COMPOSE_BIN[@]}" --help 2>/dev/null | grep -q -- '--env-file'; then
+    "${COMPOSE_BIN[@]}" --env-file "${ENV_FILE}" -f docker-compose.deploy.yml "$@"
     return
   fi
 
@@ -52,7 +61,7 @@ compose_cmd() {
     # shellcheck disable=SC1090
     source "${ENV_FILE}"
     set +a
-    docker compose -f docker-compose.deploy.yml "$@"
+    "${COMPOSE_BIN[@]}" -f docker-compose.deploy.yml "$@"
   )
 }
 

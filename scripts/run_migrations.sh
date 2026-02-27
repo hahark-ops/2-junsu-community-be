@@ -27,9 +27,18 @@ if [[ -n "${ENV_FILE}" && ! -f "${ENV_FILE}" ]]; then
   exit 1
 fi
 
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_BIN=(docker-compose)
+else
+  echo "docker compose 또는 docker-compose를 찾을 수 없습니다."
+  exit 1
+fi
+
 compose_exec() {
-  if [[ -n "${ENV_FILE}" ]] && docker compose --help 2>/dev/null | grep -q -- '--env-file'; then
-    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+  if [[ -n "${ENV_FILE}" ]] && "${COMPOSE_BIN[@]}" --help 2>/dev/null | grep -q -- '--env-file'; then
+    "${COMPOSE_BIN[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
     return
   fi
 
@@ -39,12 +48,12 @@ compose_exec() {
       # shellcheck disable=SC1090
       source "${ENV_FILE}"
       set +a
-      docker compose -f "${COMPOSE_FILE}" "$@"
+      "${COMPOSE_BIN[@]}" -f "${COMPOSE_FILE}" "$@"
     )
     return
   fi
 
-  docker compose -f "${COMPOSE_FILE}" "$@"
+  "${COMPOSE_BIN[@]}" -f "${COMPOSE_FILE}" "$@"
 }
 
 echo "DB 준비 상태 확인 중..."
