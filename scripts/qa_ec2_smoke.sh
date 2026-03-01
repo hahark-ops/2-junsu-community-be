@@ -213,8 +213,10 @@ if [[ "${status}" != "200" ]]; then
   if [[ "${status}" == "400" && "${error_code}" == "LOGIN_FAILED" ]]; then
     echo "[INFO] 기본 QA 계정 로그인 실패. fallback QA 계정 생성 후 재시도합니다."
     ts_fallback="$(date +%s%N)"
+    pw_suffix="$((ts_fallback % 1000000))"
     RUNTIME_EMAIL="qa${ts_fallback}@example.com"
-    RUNTIME_PASSWORD="Qa!${ts_fallback}Aa1"
+    # 길이(<=20)와 복잡도 정책을 모두 만족하는 fallback 비밀번호
+    RUNTIME_PASSWORD="Qa!${pw_suffix}Aa1"
     # 10자 제한에 걸려도 매 실행마다 다른 값이 되도록 숫자 기반 닉네임 seed 사용
     fallback_seed="q${ts_fallback}${RANDOM}"
     fallback_nickname="$(normalize_nickname "${fallback_seed}")"
