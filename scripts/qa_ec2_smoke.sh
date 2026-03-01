@@ -212,11 +212,12 @@ if [[ "${status}" != "200" ]]; then
   error_code="$(json_field_or_empty "code")"
   if [[ "${status}" == "400" && "${error_code}" == "LOGIN_FAILED" ]]; then
     echo "[INFO] 기본 QA 계정 로그인 실패. fallback QA 계정 생성 후 재시도합니다."
-    ts_fallback="$(date +%s)"
+    ts_fallback="$(date +%s%N)"
     RUNTIME_EMAIL="qa${ts_fallback}@example.com"
     RUNTIME_PASSWORD="Qa!${ts_fallback}Aa1"
-    QA_NICKNAME="$(normalize_nickname "${QA_NICKNAME}")"
-    fallback_nickname="$(normalize_nickname "${QA_NICKNAME}${ts_fallback}")"
+    # 10자 제한에 걸려도 매 실행마다 다른 값이 되도록 숫자 기반 닉네임 seed 사용
+    fallback_seed="q${ts_fallback}${RANDOM}"
+    fallback_nickname="$(normalize_nickname "${fallback_seed}")"
 
     signup_payload="$(cat <<JSON
 {"email":"${RUNTIME_EMAIL}","password":"${RUNTIME_PASSWORD}","nickname":"${fallback_nickname}"}
