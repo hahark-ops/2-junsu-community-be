@@ -105,10 +105,15 @@
   - `21-output-after.txt`
   - `22-state-after-apply.txt`
 
-### 4.3 과제 10/11 (진행 중)
+### 4.3 과제 10/11 증빙
 
-- 과제 10: CI 실패 시 배포 차단(run URL) 정리 예정
-- 과제 11: push -> ci -> deploy-ec2 자동 사이클 성공 run URL 정리 예정
+- 과제 10 (테스트코드 -> CI 게이트)
+  - CI 실패 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544406601`
+  - 실패 SHA(`9d03e4f...`)에서는 `deploy-ec2` 미트리거 확인
+- 과제 11 (GitHub Actions -> EC2 자동배포)
+  - CI 성공 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544670598`
+  - 배포 성공 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544690983`
+  - EC2 내부 헬스: `curl http://127.0.0.1/` -> `HTTP/1.1 200 OK`
 
 ## 5. 운영상 한계와 다음 단계
 
@@ -120,6 +125,6 @@
 
 ### 5.2 다음 단계
 
-1. 과제 10: 테스트 게이트 증빙 확정
-2. 과제 11: 본인 EC2 자동배포 실증 완료
-3. 과제 12: Jenkins 연동(EC2 Jenkins 또는 GitHub Actions + Jenkins 혼합)
+1. 과제 12: Jenkins 연동(EC2 Jenkins 또는 GitHub Actions + Jenkins 혼합)
+2. CI/CD 운영 분기 정리(main/prod, develop/dev)
+3. 비용 최소화 운영(run 후 stop 자동화)
