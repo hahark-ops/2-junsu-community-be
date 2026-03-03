@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-ec2-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref_name || 'manual' }}
+  group: deploy-ec2-${{ github.event.workflow_run.head_branch || github.ref_name || 'manual' }}
   cancel-in-progress: true
 
 jobs:
@@ -311,29 +311,38 @@ jobs:
             --output text)"
 
           echo "command_id=${COMMAND_ID}" >> "$GITHUB_OUTPUT"
+          STATUS="InProgress"
+          MAX_POLLS=180
+          SLEEP_SECONDS=10
+          for i in $(seq 1 "${MAX_POLLS}"); do
+            STATUS="$(aws ssm get-command-invocation \
+              --region "${AWS_REGION}" \
+              --command-id "${COMMAND_ID}" \
+              --instance-id "${{ steps.resolve.outputs.instance_id }}" \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "InProgress")"
+            echo "SSM deploy status=${STATUS} (${i}/${MAX_POLLS})"
+            case "${STATUS}" in
+              Success|Cancelled|TimedOut|Failed|Cancelling|DeliveryTimedOut|ExecutionTimedOut)
+                break
+                ;;
+            esac
+            sleep "${SLEEP_SECONDS}"
+          done
 
-          set +e
-          aws ssm wait command-executed \
-            --region "${AWS_REGION}" \
-            --command-id "${COMMAND_ID}" \
-            --instance-id "${{ steps.resolve.outputs.instance_id }}"
-          WAIT_EXIT=$?
-          set -e
+          echo "deploy_status=${STATUS}" >> "$GITHUB_OUTPUT"
 
-          STATUS="$(aws ssm get-command-invocation \
-            --region "${AWS_REGION}" \
-            --command-id "${COMMAND_ID}" \
-            --instance-id "${{ steps.resolve.outputs.instance_id }}" \
-            --query 'Status' \
-            --output text)"
-
-          if [ "${WAIT_EXIT}" -ne 0 ] || [ "${STATUS}" != "Success" ]; then
-            echo "SSM deploy failed with status=${STATUS}"
+          if [ "${STATUS}" != "Success" ]; then
+            if [ "${STATUS}" = "InProgress" ] || [ "${STATUS}" = "Pending" ] || [ "${STATUS}" = "Delayed" ]; then
+              echo "SSM deploy timeout while status=${STATUS}"
+            else
+              echo "SSM deploy failed with status=${STATUS}"
+            fi
             aws ssm get-command-invocation \
               --region "${AWS_REGION}" \
               --command-id "${COMMAND_ID}" \
               --instance-id "${{ steps.resolve.outputs.instance_id }}" \
-              --query '{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}'
+              --query '{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}' || true
             exit 1
           fi
 
@@ -348,7 +357,7 @@ jobs:
             --overwrite
 
       - name: Rollback on failure
-        if: ${{ failure() && steps.resolve.outputs.rollback_on_fail == 'true' && steps.ssm_deploy.outcome == 'failure' }}
+        if: ${{ failure() && steps.resolve.outputs.rollback_on_fail == 'true' && steps.ssm_deploy.outcome == 'failure' && steps.ssm_deploy.outputs.deploy_status != 'InProgress' && steps.ssm_deploy.outputs.deploy_status != 'Pending' && steps.ssm_deploy.outputs.deploy_status != 'Delayed' }}
         run: |
           set -euo pipefail
 
@@ -356,6 +365,17 @@ jobs:
           if [ -z "${PREV_TAG}" ]; then
             echo "No previous tag found. Skip rollback."
             exit 0
+          fi
+
+          INSTANCE_ID="${{ steps.resolve.outputs.instance_id }}"
+          STATE="$(aws ec2 describe-instances \
+            --region "${AWS_REGION}" \
+            --instance-ids "${INSTANCE_ID}" \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text 2>/dev/null || true)"
+          if [ "${STATE}" = "stopped" ] || [ "${STATE}" = "stopping" ]; then
+            aws ec2 start-instances --region "${AWS_REGION}" --instance-ids "${INSTANCE_ID}" >/dev/null
+            aws ec2 wait instance-running --region "${AWS_REGION}" --instance-ids "${INSTANCE_ID}"
           fi
 
           PREV_BE_IMAGE="${ECR_REGISTRY}/${ECR_REPO_BE}:${PREV_TAG}"
@@ -411,14 +431,32 @@ jobs:
             --parameters "file://${PARAMS_JSON}" \
             --query 'Command.CommandId' \
             --output text)"
-
-          aws ssm wait command-executed \
-            --region "${AWS_REGION}" \
-            --command-id "${COMMAND_ID}" \
-            --instance-id "${{ steps.resolve.outputs.instance_id }}"
+          STATUS="InProgress"
+          MAX_POLLS=180
+          SLEEP_SECONDS=10
+          for i in $(seq 1 "${MAX_POLLS}"); do
+            STATUS="$(aws ssm get-command-invocation \
+              --region "${AWS_REGION}" \
+              --command-id "${COMMAND_ID}" \
+              --instance-id "${{ steps.resolve.outputs.instance_id }}" \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "InProgress")"
+            echo "SSM rollback status=${STATUS} (${i}/${MAX_POLLS})"
+            case "${STATUS}" in
+              Success|Cancelled|TimedOut|Failed|Cancelling|DeliveryTimedOut|ExecutionTimedOut)
+                break
+                ;;
+            esac
+            sleep "${SLEEP_SECONDS}"
+          done
 
           aws ssm get-command-invocation \
             --region "${AWS_REGION}" \
             --command-id "${COMMAND_ID}" \
             --instance-id "${{ steps.resolve.outputs.instance_id }}" \
-            --query '{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}'
+            --query '{Status:Status,StdOut:StandardOutputContent,StdErr:StandardErrorContent}' || true
+
+          if [ "${STATUS}" != "Success" ]; then
+            echo "Rollback failed with status=${STATUS}"
+            exit 1
+          fi
