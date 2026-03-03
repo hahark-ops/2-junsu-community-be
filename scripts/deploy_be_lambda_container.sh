@@ -63,16 +63,30 @@ IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
 RDS_ENDPOINT="${RDS_ENDPOINT:-${RDS_HOST:-${DB_HOST:-$(tf_output_raw rds_endpoint)}}}"
 RDS_PORT="${RDS_PORT:-${DB_PORT:-$(tf_output_raw rds_port)}}"
 UPLOAD_LAMBDA_API_URL="${UPLOAD_LAMBDA_API_URL:-$(tf_output_raw upload_api_route_url)}"
+UPLOAD_INTERNAL_TOKEN="${UPLOAD_INTERNAL_TOKEN:-}"
 FE_PUBLIC_IP="${FE_PUBLIC_IP:-$(tf_output_raw fe_public_ip)}"
 ALB_DNS_NAME="${ALB_DNS_NAME:-$(tf_output_raw alb_dns_name)}"
 VPC_ID="${VPC_ID:-$(tf_output_raw vpc_id)}"
 
-if [[ -z "${RDS_ENDPOINT}" || -z "${RDS_PORT}" || -z "${VPC_ID}" || -z "${UPLOAD_LAMBDA_API_URL}" ]]; then
+if [[ -z "${UPLOAD_INTERNAL_TOKEN}" ]]; then
+  UPLOAD_HANDLER_FUNCTION_NAME="${UPLOAD_HANDLER_FUNCTION_NAME:-${NAME_PREFIX}-upload-handler}"
+  UPLOAD_INTERNAL_TOKEN="$(aws lambda get-function-configuration \
+    --region "${AWS_REGION}" \
+    --function-name "${UPLOAD_HANDLER_FUNCTION_NAME}" \
+    --query 'Environment.Variables.UPLOAD_INTERNAL_TOKEN' \
+    --output text 2>/dev/null || true)"
+  if [[ "${UPLOAD_INTERNAL_TOKEN}" == "None" ]]; then
+    UPLOAD_INTERNAL_TOKEN=""
+  fi
+fi
+
+if [[ -z "${RDS_ENDPOINT}" || -z "${RDS_PORT}" || -z "${VPC_ID}" || -z "${UPLOAD_LAMBDA_API_URL}" || -z "${UPLOAD_INTERNAL_TOKEN}" ]]; then
   echo "필수 값이 부족합니다. 아래 값들을 env로 지정하거나 terraform output이 필요합니다."
   echo "- RDS_ENDPOINT (또는 DB_HOST)"
   echo "- RDS_PORT (또는 DB_PORT)"
   echo "- VPC_ID"
   echo "- UPLOAD_LAMBDA_API_URL"
+  echo "- UPLOAD_INTERNAL_TOKEN (또는 업로드 Lambda 환경변수에서 자동 조회 가능)"
   exit 1
 fi
 
@@ -179,6 +193,7 @@ cat > "${ENV_FILE}" <<EOF
     "COOKIE_SECURE": "false",
     "UPLOAD_PROVIDER": "lambda",
     "UPLOAD_LAMBDA_API_URL": "${UPLOAD_LAMBDA_API_URL}",
+    "UPLOAD_INTERNAL_TOKEN": "${UPLOAD_INTERNAL_TOKEN}",
     "PYTHONUNBUFFERED": "1"
   }
 }

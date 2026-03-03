@@ -13,6 +13,7 @@ const ALLOWED_CONTENT_TYPES = new Set([
 const UPLOAD_BUCKET = process.env.UPLOAD_BUCKET;
 const AWS_REGION =
   process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-northeast-2";
+const UPLOAD_INTERNAL_TOKEN = (process.env.UPLOAD_INTERNAL_TOKEN || "").trim();
 
 const s3 = new S3Client({ region: AWS_REGION });
 
@@ -111,6 +112,16 @@ function parseJsonBody(event) {
   return JSON.parse(event.body);
 }
 
+function getHeader(headers, key) {
+  const target = String(key || "").toLowerCase();
+  for (const [headerKey, value] of Object.entries(headers || {})) {
+    if (String(headerKey).toLowerCase() === target) {
+      return value;
+    }
+  }
+  return "";
+}
+
 function buildObjectKey(uploadType, filename) {
   const extension = getExtension(filename);
   const savedFilename = `${crypto.randomUUID()}${extension}`;
@@ -151,7 +162,24 @@ exports.handler = async (event) => {
       return response(200, { ok: true });
     }
 
+    if (!UPLOAD_INTERNAL_TOKEN) {
+      return response(500, {
+        code: "CONFIG_ERROR",
+        message: "UPLOAD_INTERNAL_TOKEN 환경변수가 설정되지 않았습니다.",
+        data: null,
+      });
+    }
+
     const headers = event.headers || {};
+    const requestToken = getHeader(headers, "x-upload-internal-token");
+    if (requestToken !== UPLOAD_INTERNAL_TOKEN) {
+      return response(401, {
+        code: "UNAUTHORIZED",
+        message: "업로드 URL 발급 권한이 없습니다.",
+        data: null,
+      });
+    }
+
     const contentType = headers["content-type"] || headers["Content-Type"] || "";
 
     if (contentType.toLowerCase().startsWith("application/json")) {

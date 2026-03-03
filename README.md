@@ -40,6 +40,7 @@
   - 이미지 레지스트리: ECR
   - EC2 배포: 단일 리버스 프록시 + SSM 원격 실행 (기본 운영 경로)
   - 자동 배포: `main/develop` push -> `ci` 성공 시 `deploy-ec2` 자동 실행
+  - 동일 태그 재배포: `/Users/junsu/Desktop/2-junsu-community-be/scripts/redeploy_same_tag_ec2.sh`
   - CI 게이트: compile/compose 검증 + 로컬 compose 스모크 테스트
   - ECS/Lambda: 과제 증빙용 수동 실행 경로 유지
   - 실패 시 롤백: EC2 태그 롤백 / ECS task definition 롤백 / Lambda alias 롤백
@@ -63,6 +64,19 @@
   - `/Users/junsu/Desktop/2-junsu-community-be/deploy.portainer.local.env.example`
 - 상세 가이드
   - `/Users/junsu/Desktop/2-junsu-community-be/docs/PORTAINER_REGISTRY_GUIDE.md`
+
+---
+
+## 🛡 Terraform 운영 기본값
+
+- `infra/terraform/variables.tf` 기준 기본값
+  - `enable_rds=false` (최소비용 기본 운영)
+  - `enable_ecs=false`
+- `infra/terraform/terraform.tfvars.example`의 `admin_cidr`는 샘플 `/32`로 제공됩니다.
+  - `admin_cidr=0.0.0.0/0`는 `terraform validate`에서 차단됩니다.
+- 업로드 보안:
+  - Presigned URL 발급은 인증된 BE 경유 `POST /v1/files/upload-url`만 허용
+  - 업로드 Lambda는 `X-Upload-Internal-Token` 헤더가 없는 직접 호출을 차단
 
 ---
 

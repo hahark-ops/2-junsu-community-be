@@ -29,6 +29,9 @@ if [ -n "${be_repo_url}" ]; then
 
   # .env가 준비된 경우에만 자동 실행
   if [ -f /opt/community-be/.env ]; then
+    if ! grep -q '^UPLOAD_INTERNAL_TOKEN=' /opt/community-be/.env; then
+      echo "UPLOAD_INTERNAL_TOKEN=${upload_internal_token}" >> /opt/community-be/.env
+    fi
     docker rm -f community-be || true
     docker build -t community-be:latest .
     docker run -d --name community-be --restart unless-stopped --network host --env-file .env community-be:latest

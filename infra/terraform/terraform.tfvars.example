@@ -3,7 +3,7 @@ project_name = "community"
 environment  = "dev"
 
 # 현재 내 공인 IP/32 로 설정 (예: 1.2.3.4/32)
-admin_cidr = "0.0.0.0/0"
+admin_cidr = "203.0.113.10/32"
 
 # EC2 키페어 이름
 key_pair_name = "your-keypair-name"

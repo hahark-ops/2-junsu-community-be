@@ -141,6 +141,20 @@ flowchart LR
 5. Lambda BE 검증 경로:
    - API Gateway(`/`) -> Lambda(`community-dev-be-api`) -> EC2 MySQL(13306)
 
+### 1.4 사용 기술 스택
+
+| 영역 | 사용 기술/서비스 | 역할 |
+|---|---|---|
+| Frontend | HTML/CSS/JavaScript, Node.js | 웹 UI 제공, API 호출 |
+| Backend | FastAPI, Uvicorn, Python | 인증/게시글/댓글/좋아요/업로드 API |
+| Reverse Proxy | Nginx (Docker) | FE 정적 서빙, `/v1/*` 백엔드 라우팅 |
+| Database | MySQL 8 (Docker) | 사용자/게시글/댓글/세션 데이터 저장 |
+| Container | Docker, Docker Compose | 로컬/EC2 서비스 통합 배포 |
+| Image Registry | Docker Hub, ECR, Local Registry(Portainer 실습) | 컨테이너 이미지 저장/배포 |
+| Serverless | API Gateway, Lambda, S3, Athena | 업로드 presigned URL, 분석 API, BE Lambda 증빙 |
+| IaC/배포 | Terraform, GitHub Actions, AWS SSM | 인프라 구성/CI/CD/원격 배포 |
+| Observability | CloudWatch, CloudTrail | 로그/알람/감사 추적 |
+
 ## 2. 예상 트래픽 기반 장애 시나리오
 
 ### 2.1 가정
@@ -160,6 +174,15 @@ flowchart LR
 1. DB 지연 -> BE 응답 지연/타임아웃
 2. BE 지연 -> FE 사용자 체감 장애 확산
 3. 인증 API 지연 -> 전체 보호 API 사용 불가
+
+### 2.4 영향 범위 및 전파 구조
+
+| 시작 장애 지점 | 1차 영향 | 2차 전파 | 사용자 영향 |
+|---|---|---|---|
+| MySQL 연결 지연/다운 | 게시글/댓글/인증 API 실패 증가 | Nginx upstream 대기 증가, Lambda DB 의존 API 실패 | 로그인 실패, 피드 로딩 지연/오류 |
+| BE 컨테이너 CPU 포화 | 응답 시간 증가(5xx/timeout) | FE 재시도 증가로 추가 부하 유발 | 화면 갱신 실패, UX 급격 악화 |
+| 단일 EC2 네트워크 이슈 | FE+BE+DB 동시 영향 | Lambda DB 연동 경로도 간접 장애 | 서비스 전체 가용성 저하 |
+| 업로드 Lambda/API Gateway 지연 | presigned URL 발급 실패 | FE 폴백 업로드 경로 부하 증가 | 이미지 업로드 실패율 상승 |
 
 ## 3. 고가용성 구현 방안 (AWS 중심)
 
@@ -188,6 +211,16 @@ flowchart LR
   - ECS: 이전 task definition 롤백
   - Lambda: alias 이전 버전 롤백
 
+### 3.5 RTO/RPO 기준 복구 절차
+
+1. 감지: CloudWatch 알람으로 장애 징후 확인(응답시간/5xx/CPU).
+2. 격리: 장애 인스턴스 트래픽 차단(ALB 헬스체크 실패 기준).
+3. 복구:
+   - 애플리케이션: 이전 정상 이미지 태그로 즉시 롤백
+   - 데이터: RDS 스냅샷/자동백업 기반 복구
+4. 검증: 핵심 API(`login`, `posts list`, `upload-url`) 스모크 테스트 수행
+5. 사후 조치: 원인 분석(RCA), 재발 방지 액션 및 임계치 조정
+
 ## 4. 과제별 실행 증빙 링크
 
 ### 4.1 과제 8 (CI/CD + ECS/Lambda 배포 경험)
@@ -210,8 +243,10 @@ flowchart LR
 ### 4.3 과제 10/11 증빙
 
 - 과제 10 (테스트코드 -> CI 게이트)
-  - CI 실패 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544406601`
+  - CI 성공 run(기본 기능 테스트 통과): `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544670598`
+  - CI 실패 run(의도적 게이트 검증): `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544406601`
   - 실패 SHA(`9d03e4f...`)에서는 `deploy-ec2` 미트리거 확인
+  - 결론: "테스트 실패 시 배포 차단" 정책이 정상 동작함
 - 과제 11 (GitHub Actions -> EC2 자동배포)
   - CI 성공 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544670598`
   - 배포 성공 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544690983`

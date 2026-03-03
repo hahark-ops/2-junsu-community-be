@@ -25,6 +25,11 @@ variable "vpc_cidr" {
 variable "admin_cidr" {
   description = "SSH 허용 CIDR (예: 1.2.3.4/32)"
   type        = string
+
+  validation {
+    condition     = var.admin_cidr != "0.0.0.0/0"
+    error_message = "admin_cidr에 0.0.0.0/0을 사용할 수 없습니다. 현재 공인 IP/32만 허용하세요."
+  }
 }
 
 variable "key_pair_name" {
@@ -59,7 +64,7 @@ variable "db_instance_class" {
 variable "enable_rds" {
   description = "RDS 리소스 생성 여부"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "db_host_override" {

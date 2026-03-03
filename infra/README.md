@@ -38,6 +38,11 @@ cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
 - `key_pair_name`
 - `db_password`
 
+주의:
+- `admin_cidr="0.0.0.0/0"`는 `terraform validate`에서 차단됩니다.
+- `enable_rds` 기본값은 `false`입니다. RDS가 필요한 경우에만 `true`로 명시하세요.
+- `enable_rds=false`로 운영할 때 ECS/Lambda 경로는 `db_host_override`를 함께 지정해야 합니다.
+
 권장:
 - `project_name`
 - `environment`
@@ -77,16 +82,11 @@ UPLOAD_LAMBDA_API_URL=<upload_api_route_url>
 ```
 
 ## 6) 업로드 API 사용 방식
-`POST {upload_api_route_url}` 는 `multipart/form-data` 업로드입니다.
+보안 기본 정책:
+- API Gateway 업로드 Lambda는 내부 토큰(`X-Upload-Internal-Token`)이 없는 요청을 차단합니다.
+- 업로드 URL 발급은 **인증된 BE 경유**(`POST /v1/files/upload-url`)만 허용합니다.
 
-- form field: `file` (바이너리 파일)
-- form field: `type` (`profile` 또는 `post`)
-
-검증 스크립트:
-
-```bash
-./scripts/test_upload_via_apigw.sh <upload_api_route_url> ./sample.png profile
-```
+즉, 브라우저/외부에서 API Gateway 업로드 경로를 직접 호출하는 방식은 기본 차단됩니다.
 
 ## 7) FE -> API Gateway -> Lambda -> Athena 검증
 Athena 경로 URL:
@@ -122,7 +122,7 @@ RDS/ALB/NAT(없음)/EIP 등은 비용이 발생합니다.
 ```
 
 ## 9) 자주 하는 실수
-- `admin_cidr=0.0.0.0/0`로 장기간 운영
+- `admin_cidr=0.0.0.0/0`로 설정(현재 validate 단계에서 차단)
 - `terraform.tfvars`를 git에 커밋 (비밀번호 노출)
 - 콘솔에서 리소스 수동 수정 후 Terraform 재적용 시 충돌
 

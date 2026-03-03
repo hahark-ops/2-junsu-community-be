@@ -1,11 +1,13 @@
 import os
 import uuid
+from typing import Optional
 from urllib.parse import urlparse
 
 import boto3
 import requests
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from dependencies import get_current_user
 
@@ -28,6 +30,7 @@ S3_REGION = os.getenv("AWS_REGION", "").strip()
 S3_OBJECT_PREFIX = os.getenv("S3_OBJECT_PREFIX", "uploads").strip().strip("/")
 S3_BASE_URL = os.getenv("S3_BASE_URL", "").strip().rstrip("/")
 UPLOAD_LAMBDA_API_URL = os.getenv("UPLOAD_LAMBDA_API_URL", "").strip()
+UPLOAD_INTERNAL_TOKEN = os.getenv("UPLOAD_INTERNAL_TOKEN", "").strip()
 
 # 업로드 디렉토리가 없으면 생성 (앱 시작 시에도 체크하지만 여기서도 안전하게)
 if not os.path.exists(UPLOAD_DIR):
@@ -98,6 +101,72 @@ def _build_s3_file_url(object_key: str) -> str:
     return f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{object_key}"
 
 
+def _lambda_internal_headers() -> dict:
+    if not UPLOAD_INTERNAL_TOKEN:
+        raise HTTPException(status_code=500, detail="UPLOAD_INTERNAL_TOKEN 환경변수가 설정되지 않았습니다.")
+    return {"X-Upload-Internal-Token": UPLOAD_INTERNAL_TOKEN}
+
+
+def _request_presigned_url_via_lambda(
+    upload_type: str,
+    original_filename: str,
+    content_type: str,
+) -> Optional[tuple[str, str, str, str]]:
+    if not UPLOAD_LAMBDA_API_URL:
+        raise HTTPException(status_code=500, detail="UPLOAD_LAMBDA_API_URL 환경변수가 설정되지 않았습니다.")
+
+    try:
+        presign_resp = requests.post(
+            UPLOAD_LAMBDA_API_URL,
+            json={
+                "type": upload_type,
+                "filename": original_filename,
+                "contentType": content_type,
+            },
+            headers=_lambda_internal_headers(),
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        print(f"Lambda presign request error: {str(e)}")
+        return None
+
+    if not presign_resp.ok:
+        print(
+            f"Lambda presign request failed: status={presign_resp.status_code}, body={presign_resp.text[:300]}"
+        )
+        return None
+
+    try:
+        body = presign_resp.json()
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Lambda presign 응답 파싱에 실패했습니다.")
+
+    data = body.get("data") or {}
+    upload_url = data.get("uploadUrl") or body.get("uploadUrl")
+    file_url = (
+        data.get("fileUrl")
+        or data.get("filePath")
+        or data.get("url")
+        or body.get("fileUrl")
+        or body.get("filePath")
+        or body.get("file_url")
+    )
+    object_key = data.get("objectKey") or body.get("objectKey")
+    filename = data.get("filename") or body.get("filename") or ""
+
+    if upload_url:
+        if not object_key and file_url:
+            object_key = urlparse(file_url).path.lstrip("/")
+        if not file_url and object_key:
+            file_url = _build_s3_file_url(object_key)
+        if not file_url:
+            raise HTTPException(status_code=500, detail="업로드 URL 생성 결과가 올바르지 않습니다.")
+
+        return upload_url, file_url, object_key or urlparse(file_url).path.lstrip("/"), filename
+
+    raise HTTPException(status_code=500, detail="업로드 URL 생성 결과가 올바르지 않습니다.")
+
+
 def _upload_to_s3(object_key: str, content: bytes, content_type: str):
     if not S3_BUCKET_NAME:
         raise HTTPException(status_code=500, detail="S3_BUCKET_NAME 환경변수가 설정되지 않았습니다.")
@@ -115,68 +184,33 @@ def _upload_to_s3(object_key: str, content: bytes, content_type: str):
 
 
 def _upload_via_lambda_api(upload_type: str, original_filename: str, content: bytes, content_type: str):
-    if not UPLOAD_LAMBDA_API_URL:
-        raise HTTPException(status_code=500, detail="UPLOAD_LAMBDA_API_URL 환경변수가 설정되지 않았습니다.")
-
     # 1) Preferred path: get presigned URL from Lambda, then upload directly to S3.
-    try:
-        presign_resp = requests.post(
-            UPLOAD_LAMBDA_API_URL,
-            json={
-                "type": upload_type,
-                "filename": original_filename,
-                "contentType": content_type,
-            },
-            timeout=15,
-        )
-    except requests.RequestException as e:
-        print(f"Lambda presign request error: {str(e)}")
-        presign_resp = None
+    presigned = _request_presigned_url_via_lambda(
+        upload_type=upload_type,
+        original_filename=original_filename,
+        content_type=content_type,
+    )
 
-    if presign_resp is not None and presign_resp.ok:
+    if presigned:
+        upload_url, file_url, object_key, _filename = presigned
         try:
-            body = presign_resp.json()
-        except ValueError:
-            raise HTTPException(status_code=500, detail="Lambda presign 응답 파싱에 실패했습니다.")
+            put_resp = requests.put(
+                upload_url,
+                data=content,
+                headers={"Content-Type": content_type},
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            print(f"Presigned PUT request error: {str(e)}")
+            raise HTTPException(status_code=500, detail="S3 Presigned 업로드 중 오류가 발생했습니다.")
 
-        data = body.get("data") or {}
-        upload_url = data.get("uploadUrl") or body.get("uploadUrl")
-        file_url = (
-            data.get("fileUrl")
-            or data.get("filePath")
-            or data.get("url")
-            or body.get("fileUrl")
-            or body.get("filePath")
-            or body.get("file_url")
-        )
-        object_key = data.get("objectKey") or body.get("objectKey")
+        if put_resp.status_code not in {200, 201}:
+            print(
+                f"Presigned PUT failed: status={put_resp.status_code}, body={put_resp.text[:300]}"
+            )
+            raise HTTPException(status_code=500, detail="S3 Presigned 업로드에 실패했습니다.")
 
-        if upload_url:
-            try:
-                put_resp = requests.put(
-                    upload_url,
-                    data=content,
-                    headers={"Content-Type": content_type},
-                    timeout=30,
-                )
-            except requests.RequestException as e:
-                print(f"Presigned PUT request error: {str(e)}")
-                raise HTTPException(status_code=500, detail="S3 Presigned 업로드 중 오류가 발생했습니다.")
-
-            if put_resp.status_code not in {200, 201}:
-                print(
-                    f"Presigned PUT failed: status={put_resp.status_code}, body={put_resp.text[:300]}"
-                )
-                raise HTTPException(status_code=500, detail="S3 Presigned 업로드에 실패했습니다.")
-
-            if not object_key and file_url:
-                object_key = urlparse(file_url).path.lstrip("/")
-            if not file_url and object_key:
-                file_url = _build_s3_file_url(object_key)
-            if not file_url:
-                raise HTTPException(status_code=500, detail="업로드 URL 생성 결과가 올바르지 않습니다.")
-
-            return file_url, object_key or urlparse(file_url).path.lstrip("/")
+        return file_url, object_key
 
     # 2) Fallback path: legacy multipart relay through Lambda.
     try:
@@ -184,6 +218,7 @@ def _upload_via_lambda_api(upload_type: str, original_filename: str, content: by
             UPLOAD_LAMBDA_API_URL,
             data={"type": upload_type},
             files={"file": (original_filename, content, content_type)},
+            headers=_lambda_internal_headers(),
             timeout=20,
         )
     except requests.RequestException as e:
@@ -192,6 +227,8 @@ def _upload_via_lambda_api(upload_type: str, original_filename: str, content: by
 
     if not lambda_resp.ok:
         print(f"Lambda upload request failed: status={lambda_resp.status_code}, body={lambda_resp.text}")
+        if lambda_resp.status_code == 401:
+            raise HTTPException(status_code=500, detail="업로드 서비스 인증 설정 오류입니다.")
         if lambda_resp.status_code == 413:
             raise HTTPException(status_code=413, detail="파일 크기가 업로드 경로 제한을 초과했습니다.")
         raise HTTPException(status_code=500, detail="Lambda 업로드 요청에 실패했습니다.")
@@ -220,6 +257,49 @@ def _upload_via_lambda_api(upload_type: str, original_filename: str, content: by
         object_key = parsed.path.lstrip("/")
 
     return file_url, object_key
+
+
+class UploadUrlRequest(BaseModel):
+    type: str = "post"
+    filename: str = "upload.png"
+    contentType: str = "image/png"
+
+
+@router.post("/upload-url")
+async def create_upload_url(
+    payload: UploadUrlRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    _ = current_user
+
+    if UPLOAD_PROVIDER != "lambda":
+        raise HTTPException(status_code=400, detail="현재 업로드 provider는 presigned URL 발급을 지원하지 않습니다.")
+
+    content_type = (payload.contentType or "image/png").strip().lower()
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다.")
+
+    filename = (payload.filename or "upload.png").strip() or "upload.png"
+    file_extension = os.path.splitext(filename)[1].lower()
+    if file_extension and file_extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="지원하지 않는 확장자입니다.")
+
+    presigned = _request_presigned_url_via_lambda(
+        upload_type=payload.type,
+        original_filename=filename,
+        content_type=content_type,
+    )
+    if not presigned:
+        raise HTTPException(status_code=500, detail="업로드 URL 발급에 실패했습니다.")
+
+    upload_url, file_url, object_key, saved_filename = presigned
+    return {
+        "uploadUrl": upload_url,
+        "fileUrl": file_url,
+        "objectKey": object_key,
+        "filename": saved_filename or os.path.basename(object_key),
+        "provider": "lambda-presigned",
+    }
 
 
 @router.post("/upload")

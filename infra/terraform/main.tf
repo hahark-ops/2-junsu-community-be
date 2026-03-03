@@ -18,6 +18,11 @@ resource "random_id" "suffix" {
   byte_length = 3
 }
 
+resource "random_password" "upload_internal_token" {
+  length  = 48
+  special = false
+}
+
 locals {
   azs = slice(data.aws_availability_zones.available.names, 0, 2)
 
@@ -603,6 +608,7 @@ resource "aws_ecs_task_definition" "be" {
         { name = "COOKIE_MAX_AGE", value = "604800" },
         { name = "UPLOAD_PROVIDER", value = "lambda" },
         { name = "UPLOAD_LAMBDA_API_URL", value = "${aws_apigatewayv2_api.upload_api.api_endpoint}/v1/files/upload-url" },
+        { name = "UPLOAD_INTERNAL_TOKEN", value = random_password.upload_internal_token.result },
         { name = "MAX_UPLOAD_SIZE_BYTES", value = "26214400" },
         { name = "MAX_PROFILE_UPLOAD_SIZE_BYTES", value = "26214400" },
         { name = "MAX_POST_UPLOAD_SIZE_BYTES", value = "31457280" },
@@ -667,10 +673,11 @@ resource "aws_instance" "be" {
   associate_public_ip_address = true
 
   user_data = templatefile("${path.module}/templates/user_data_be.sh.tftpl", {
-    be_repo_url    = var.be_repo_url
-    be_repo_branch = var.be_repo_branch
-    aws_region     = var.aws_region
-    efs_id         = aws_efs_file_system.shared.id
+    be_repo_url           = var.be_repo_url
+    be_repo_branch        = var.be_repo_branch
+    aws_region            = var.aws_region
+    efs_id                = aws_efs_file_system.shared.id
+    upload_internal_token = random_password.upload_internal_token.result
   })
 
   tags = merge(local.common_tags, {
@@ -1061,7 +1068,8 @@ resource "aws_lambda_function" "upload_handler" {
 
   environment {
     variables = {
-      UPLOAD_BUCKET = aws_s3_bucket.uploads.id
+      UPLOAD_BUCKET         = aws_s3_bucket.uploads.id
+      UPLOAD_INTERNAL_TOKEN = random_password.upload_internal_token.result
     }
   }
 

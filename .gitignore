@@ -79,6 +79,7 @@ Desktop.ini
 
 # 실행 증빙 산출물(로컬 보관)
 evidence/
+uploads/
 
 # 로컬 Portainer/Registry 아티팩트
 local/portainer/
