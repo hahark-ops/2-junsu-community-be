@@ -43,3 +43,6 @@ request_with_retry "/docs" "200" "docs"
 
 echo "[3] protected api (expect 401)"
 request_with_retry "/v1/auth/me" "401" "auth/me unauthorized"
+
+echo "[4] posts list (db dependency)"
+request_with_retry "/v1/posts?limit=1&offset=0" "200" "posts list"
