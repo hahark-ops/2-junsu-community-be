@@ -113,15 +113,13 @@ jobs:
             DB_PASSWORD='${{ secrets.DB_PASSWORD_DEV }}'
           fi
 
-          if [ -z "${DB_ROOT_PASSWORD}" ]; then
-            DB_ROOT_PASSWORD="community_root_password"
-          fi
-          if [ -z "${DB_PASSWORD}" ]; then
-            DB_PASSWORD="community_password"
-          fi
-
           if [ -z "${ROLE_ARN}" ] || [ -z "${INSTANCE_ID}" ] || [ -z "${PARAM_NAME}" ]; then
             echo "Missing required environment secrets/variables for ${DEPLOY_ENV}"
+            exit 1
+          fi
+
+          if [ -z "${DB_ROOT_PASSWORD}" ] || [ -z "${DB_PASSWORD}" ]; then
+            echo "Missing DB secrets for ${DEPLOY_ENV}. Set MYSQL_ROOT_PASSWORD_${DEPLOY_ENV^^} and DB_PASSWORD_${DEPLOY_ENV^^}."
             exit 1
           fi
 
