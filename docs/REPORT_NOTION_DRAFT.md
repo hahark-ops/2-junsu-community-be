@@ -1,6 +1,6 @@
 # 커뮤니티 프로젝트 보고서 초안 (노션 제출용)
 
-최종 업데이트: 2026-03-01 (KST)
+최종 업데이트: 2026-03-03 (KST)
 
 ## 0. 문서 목적
 
@@ -12,15 +12,79 @@
 ### 1.1 As-Is (현재)
 
 - 클라이언트: Browser
-- FE: Nginx + 정적 FE 컨테이너
-- BE: FastAPI 컨테이너
-- DB: MySQL 컨테이너 (EC2 단일 reverse-proxy 경로 기준)
+- 운영 기본 경로: 단일 EC2 Reverse Proxy
+  - Nginx + FE + BE + MySQL Docker Compose
+- BE Lambda 경로: 과제 증빙용으로 유지
+  - API Gateway(`community-dev-be-http-api`) -> Lambda(`community-dev-be-api`)
+  - Lambda DB 연동: EC2 MySQL(`10.20.27.37:13306`)
 - 파일 업로드:
   - 기본: API Gateway -> Lambda -> S3 (Presigned URL)
   - 폴백: BE `/v1/files/upload`
 - 부가 서비스:
-  - CloudWatch/CloudTrail
   - API Gateway + Lambda(analytics, upload)
+  - CloudWatch/CloudTrail/EFS
+- 비용 통제 운영:
+  - 평시에는 EC2 stop, 검증/배포 시에만 start
+
+```mermaid
+flowchart TD
+    U(("사용자 웹 브라우저"))
+
+    subgraph EC2_LAYER["Primary Runtime (Single EC2)"]
+    direction TB
+    EC2["EC2 (Ubuntu)"]
+    NG["Docker: Nginx<br/>(Reverse Proxy)"]
+    FE["Docker: FE (Node/Static)"]
+    BE["Docker: BE (FastAPI)"]
+    MYSQL[("Docker: MySQL<br/>(Host 13306 -> Container 3306)")]
+    EC2 --> NG
+    NG --> FE
+    NG --> BE
+    BE --> MYSQL
+    end
+
+    subgraph SERVERLESS_LAYER["Serverless Path (Assignment Evidence)"]
+    direction TB
+    APIGW_BE["API Gateway<br/>(community-dev-be-http-api)"]
+    LAMBDA_BE["Lambda: community-dev-be-api"]
+    APIGW_BE --> LAMBDA_BE
+    LAMBDA_BE --> MYSQL
+    end
+
+    subgraph STORAGE_LAYER["Storage Layer"]
+    direction TB
+    S3[("Amazon S3<br/>(이미지 스토리지)")]
+    APIGW_UPLOAD["API Gateway<br/>(upload-api)"]
+    LAMBDA_UPLOAD["Lambda: upload handler"]
+    APIGW_UPLOAD --> LAMBDA_UPLOAD
+    LAMBDA_UPLOAD -. Presigned URL .-> S3
+    end
+
+    subgraph ANALYTICS_LAYER["Analytics Layer"]
+    direction TB
+    APIGW_ANALYTICS["API Gateway<br/>(/v1/analytics/health)"]
+    LAMBDA_ANALYTICS["Lambda: analytics handler"]
+    ATHENA[("Athena")]
+    APIGW_ANALYTICS --> LAMBDA_ANALYTICS --> ATHENA
+    end
+
+    U -->|"1. 브라우저 접속 (HTTP)"| NG
+    NG -->|"2. 일반 API (/v1/*)"| BE
+    U -->|"3. 이미지 업로드 URL 요청"| APIGW_UPLOAD
+    U -->|"4. Presigned URL PUT"| S3
+    U -->|"5. Lambda API 검증 경로"| APIGW_BE
+    U -->|"6. 분석 API"| APIGW_ANALYTICS
+
+    classDef layer fill:#3b3f46,stroke:#8b8f96,color:#ffffff;
+    classDef orange fill:#ff9800,stroke:#c77700,color:#ffffff;
+    classDef blue fill:#2f74c0,stroke:#1e4f85,color:#ffffff;
+    classDef light fill:#f2f2f2,stroke:#888,color:#333;
+
+    class EC2_LAYER,SERVERLESS_LAYER,STORAGE_LAYER,ANALYTICS_LAYER layer;
+    class APIGW_BE,LAMBDA_BE,APIGW_UPLOAD,LAMBDA_UPLOAD,APIGW_ANALYTICS,LAMBDA_ANALYTICS,S3 orange;
+    class MYSQL blue;
+    class EC2,NG,FE,BE light;
+```
 
 ### 1.2 To-Be (목표)
 
@@ -28,6 +92,42 @@
 - DB: RDS Multi-AZ + 자동 백업 + 스냅샷 정책
 - 업로드: API Gateway + Lambda + S3 단일 경로로 표준화
 - 관측: CloudWatch 대시보드/알람 + 중앙 로그
+
+```mermaid
+flowchart LR
+    U["User Browser"]
+    ALB["ALB (Multi-AZ)"]
+    ASG1["App Node A (AZ-a)"]
+    ASG2["App Node B (AZ-c)"]
+    RDS["RDS MySQL (Multi-AZ)"]
+    APIGW["API Gateway"]
+    LUP["Lambda: upload-url"]
+    LAN["Lambda: analytics"]
+    S3["S3 Upload Bucket"]
+    ATH["Athena"]
+    CW["CloudWatch + Alarms"]
+
+    U --> ALB
+    ALB --> ASG1
+    ALB --> ASG2
+    ASG1 --> RDS
+    ASG2 --> RDS
+
+    U --> APIGW
+    APIGW --> LUP
+    LUP --> S3
+    U -->|"PUT to S3"| S3
+
+    U -->|"Analytics API"| APIGW
+    APIGW --> LAN
+    LAN --> ATH
+
+    ALB --> CW
+    ASG1 --> CW
+    ASG2 --> CW
+    LUP --> CW
+    LAN --> CW
+```
 
 ### 1.3 서비스 흐름
 
@@ -38,6 +138,8 @@
    - FE -> S3 직접 PUT
 4. 분석 호출:
    - FE/운영도구 -> API Gateway(`/v1/analytics/health`) -> Lambda -> Athena
+5. Lambda BE 검증 경로:
+   - API Gateway(`/`) -> Lambda(`community-dev-be-api`) -> EC2 MySQL(13306)
 
 ## 2. 예상 트래픽 기반 장애 시나리오
 
@@ -115,6 +217,14 @@
   - 배포 성공 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544690983`
   - EC2 내부 헬스: `curl http://127.0.0.1/` -> `HTTP/1.1 200 OK`
 
+### 4.4 과제 6 최신 상태 (2026-03-03)
+
+- Lambda BE API 재배포 및 DB 연동 복구
+  - `/` -> `200`
+  - `/docs` -> `200`
+  - `/v1/auth/me` (비로그인) -> `401`
+  - `/v1/posts?limit=1&offset=0` -> `200`
+
 ## 5. 운영상 한계와 다음 단계
 
 ### 5.1 현재 한계
@@ -122,6 +232,7 @@
 1. 단일 EC2 경로는 장애 내성이 낮음
 2. 컨테이너 DB는 운영 안정성이 낮아 장기 운영 부적합
 3. 비용 통제를 위해 상시 운영을 제한 중
+4. EC2 stop 시 Lambda의 DB 의존 API도 동작 불가(현재 DB가 EC2 내부이므로)
 
 ### 5.2 다음 단계
 
