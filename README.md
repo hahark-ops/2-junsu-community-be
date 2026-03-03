@@ -9,6 +9,7 @@
 - [주요 기능](#-주요-기능)
 - [기술 스택](#-기술-스택)
 - [CI/CD (과제 8)](#-cicd-과제-8)
+- [추가 과제 (Portainer/Registry)](#-추가-과제-portainerregistry)
 - [프로젝트 구조](#-프로젝트-구조)
 - [설치 및 실행](#️-설치-및-실행)
 - [페이지 상세](#-페이지-상세)
@@ -44,6 +45,24 @@
   - 실패 시 롤백: EC2 태그 롤백 / ECS task definition 롤백 / Lambda alias 롤백
 - 자세한 변수/시크릿/실행 순서:
   - `/Users/junsu/Desktop/2-junsu-community-be/docs/CICD_PLAN.md`
+
+---
+
+## 🧰 추가 과제 (Portainer/Registry)
+
+- 로컬 전용 Portainer + Private Registry 스택
+  - Compose: `/Users/junsu/Desktop/2-junsu-community-be/docker-compose.portainer.yml`
+  - Portainer(기본): `https://localhost:9443`
+  - Registry(기본): `http://localhost:5000`
+  - 포트 충돌 시: `PORTAINER_HTTPS_PORT`, `REGISTRY_PORT` 환경변수로 변경 가능
+- 자동화 스크립트
+  - 초기 셋업: `/Users/junsu/Desktop/2-junsu-community-be/scripts/setup_portainer_local.sh`
+  - 이미지 빌드/푸시: `/Users/junsu/Desktop/2-junsu-community-be/scripts/build_and_push_local_registry.sh`
+  - 통합 QA: `/Users/junsu/Desktop/2-junsu-community-be/scripts/qa_local_additional.sh`
+- 앱 이미지 기반 실행용 env 예시
+  - `/Users/junsu/Desktop/2-junsu-community-be/deploy.portainer.local.env.example`
+- 상세 가이드
+  - `/Users/junsu/Desktop/2-junsu-community-be/docs/PORTAINER_REGISTRY_GUIDE.md`
 
 ---
 
