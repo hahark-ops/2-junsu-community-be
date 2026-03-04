@@ -82,6 +82,14 @@ async def update_user(user_id: int, update_data: dict, current_user: dict):
                 user_email=target_user["email"],
                 fields=fields_to_update,
             )
+        except ValueError as exc:
+            if str(exc) == "INVALID_UPDATE_FIELD":
+                raise APIException(
+                    code="INVALID_UPDATE_FIELD",
+                    message="허용되지 않은 수정 필드가 포함되어 있습니다.",
+                    status_code=400,
+                )
+            raise
         except mysql.connector.IntegrityError as exc:
             if getattr(exc, "errno", None) == 1062 and "nickname" in fields_to_update:
                 raise APIException(code="ALREADY_EXIST_NICKNAME", message="이미 사용 중인 닉네임입니다.", status_code=409)

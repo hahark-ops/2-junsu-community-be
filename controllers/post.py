@@ -68,7 +68,16 @@ async def update_post(post_id: int, update_data: dict, current_user: dict):
         fields["fileUrl"] = update_data["fileUrl"]
 
     if fields:
-        post_model.update_post_fields(post_id, fields)
+        try:
+            post_model.update_post_fields(post_id, fields)
+        except ValueError as exc:
+            if str(exc) == "INVALID_UPDATE_FIELD":
+                raise APIException(
+                    code="INVALID_UPDATE_FIELD",
+                    message="허용되지 않은 수정 필드가 포함되어 있습니다.",
+                    status_code=400,
+                )
+            raise
 
     return {
         "code": "UPDATE_POST_SUCCESS",

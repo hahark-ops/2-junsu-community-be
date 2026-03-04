@@ -1,5 +1,11 @@
 from models.common import get_cursor
 
+ALLOWED_POST_UPDATE_FIELDS = {
+    "title",
+    "content",
+    "fileUrl",
+}
+
 
 def fetch_posts(offset: int, limit: int):
     sql = """
@@ -98,9 +104,10 @@ def create_post(title: str, content: str, file_url: str | None, writer: str, wri
             raise
 
 
-def update_post_fields(post_id: int, fields: dict):
-    if not fields:
-        return
+def _build_post_update_sql(post_id: int, fields: dict):
+    invalid_fields = [key for key in fields if key not in ALLOWED_POST_UPDATE_FIELDS]
+    if invalid_fields:
+        raise ValueError("INVALID_UPDATE_FIELD")
 
     updates = []
     values = []
@@ -110,9 +117,17 @@ def update_post_fields(post_id: int, fields: dict):
     values.append(post_id)
 
     sql = f"UPDATE posts SET {', '.join(updates)} WHERE postId = %s"
+    return sql, tuple(values)
+
+
+def update_post_fields(post_id: int, fields: dict):
+    if not fields:
+        return
+
+    sql, values = _build_post_update_sql(post_id, fields)
     with get_cursor(dictionary=False) as (conn, cursor):
         try:
-            cursor.execute(sql, tuple(values))
+            cursor.execute(sql, values)
             conn.commit()
         except Exception:
             conn.rollback()

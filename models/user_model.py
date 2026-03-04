@@ -1,5 +1,11 @@
 from models.common import get_cursor
 
+ALLOWED_USER_UPDATE_FIELDS = {
+    "nickname",
+    "profileimage",
+    "password",
+}
+
 
 def get_user_by_id(user_id: int):
     with get_cursor() as (_, cursor):
@@ -35,6 +41,10 @@ def update_writer_display_name(user_email: str, nickname: str):
 
 
 def _build_user_update_sql(user_id: int, fields: dict):
+    invalid_fields = [key for key in fields if key not in ALLOWED_USER_UPDATE_FIELDS]
+    if invalid_fields:
+        raise ValueError("INVALID_UPDATE_FIELD")
+
     updates = []
     values = []
     for key, value in fields.items():

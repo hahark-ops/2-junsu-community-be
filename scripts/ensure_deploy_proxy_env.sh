@@ -2,6 +2,12 @@
 set -euo pipefail
 
 ENV_FILE="${1:-deploy.proxy.env}"
+MODE="${MODE:-local}"
+
+if [[ "${MODE}" != "local" && "${MODE}" != "deploy" ]]; then
+  echo "지원하지 않는 MODE입니다: ${MODE} (허용: local, deploy)"
+  exit 1
+fi
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "env 파일이 없습니다: ${ENV_FILE}"
@@ -12,7 +18,11 @@ upsert() {
   local key="$1"
   local value="$2"
   if grep -q "^${key}=" "${ENV_FILE}"; then
-    sed -i "s#^${key}=.*#${key}=${value}#" "${ENV_FILE}"
+    if sed --version >/dev/null 2>&1; then
+      sed -i "s#^${key}=.*#${key}=${value}#" "${ENV_FILE}"
+    else
+      sed -i '' "s#^${key}=.*#${key}=${value}#" "${ENV_FILE}"
+    fi
   else
     echo "${key}=${value}" >> "${ENV_FILE}"
   fi
@@ -26,6 +36,16 @@ current_value() {
 is_placeholder_or_empty() {
   local value="$1"
   [[ -z "${value}" || "${value}" == change_me_* || "${value}" == "http://YOUR_EC2_PUBLIC_IP" ]]
+}
+
+is_invalid_secret_value() {
+  local value="$1"
+  [[ \
+    -z "${value}" || \
+    "${value}" == change_me_* || \
+    "${value}" == "community_password" || \
+    "${value}" == "community_root_password" \
+  ]]
 }
 
 ensure_key() {
@@ -45,10 +65,39 @@ ensure_key() {
   fi
 }
 
-ensure_key MYSQL_ROOT_PASSWORD "community_root_password"
+ensure_secret_key() {
+  local key="$1"
+  local default_value="$2"
+  local from_env="${!key:-}"
+  local current
+  current="$(current_value "${key}")"
+
+  if [[ -n "${from_env}" ]]; then
+    if [[ "${MODE}" == "deploy" ]] && is_invalid_secret_value "${from_env}"; then
+      echo "[ERROR] ${key} 값이 유효하지 않습니다. deploy 모드에서는 placeholder/기본값을 사용할 수 없습니다."
+      exit 1
+    fi
+    upsert "${key}" "${from_env}"
+    return
+  fi
+
+  if [[ "${MODE}" == "deploy" ]]; then
+    if is_invalid_secret_value "${current}"; then
+      echo "[ERROR] ${key} 값이 비어 있거나 placeholder입니다. deploy 모드에서는 필수입니다. (${ENV_FILE})"
+      exit 1
+    fi
+    return
+  fi
+
+  if is_invalid_secret_value "${current}"; then
+    upsert "${key}" "${default_value}"
+  fi
+}
+
+ensure_secret_key MYSQL_ROOT_PASSWORD "community_root_password"
 ensure_key DB_NAME "community_db"
 ensure_key DB_USER "community_user"
-ensure_key DB_PASSWORD "community_password"
+ensure_secret_key DB_PASSWORD "community_password"
 ensure_key CORS_ALLOW_ORIGINS "http://localhost,http://127.0.0.1"
 ensure_key COOKIE_SECURE "false"
 ensure_key COOKIE_SAMESITE "lax"

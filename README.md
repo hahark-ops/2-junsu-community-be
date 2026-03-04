@@ -77,6 +77,22 @@
 - 업로드 보안:
   - Presigned URL 발급은 인증된 BE 경유 `POST /v1/files/upload-url`만 허용
   - 업로드 Lambda는 `X-Upload-Internal-Token` 헤더가 없는 직접 호출을 차단
+- 배포 env 보안:
+  - `scripts/ensure_deploy_proxy_env.sh`는 `MODE=deploy`에서 DB 비밀번호를 fail-fast로 검증합니다.
+  - `MYSQL_ROOT_PASSWORD`, `DB_PASSWORD`가 빈값/placeholder(`change_me_*`, `community_*`)면 배포를 중단합니다.
+
+## 📦 의존성 기준
+
+- 런타임 배포 기준 의존성 파일은 `requirements.txt`입니다.
+- `pyproject.toml`은 메타데이터/개발 편의용이며, 다음 명령으로 정합성을 수시 점검합니다.
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+req = {line.split("==")[0].split(">=")[0].strip() for line in Path("requirements.txt").read_text().splitlines() if line.strip() and not line.startswith("#")}
+print("requirements entries:", sorted(req))
+PY
+```
 
 ---
 

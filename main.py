@@ -1,13 +1,16 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+import logging
 import os
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from routers.index import router as api_router
 from utils import APIException
 
 app = FastAPI(title="Community API - Task 2-1")
+logger = logging.getLogger("community.api")
 
 def _cors_origins():
     raw = os.getenv("CORS_ALLOW_ORIGINS")
@@ -45,6 +48,14 @@ async def api_exception_handler(request: Request, exc: APIException):
 # 2. 예상치 못한 서버 에러 처리 (500)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    client_host = request.client.host if request.client else "unknown"
+    logger.exception(
+        "Unhandled exception method=%s path=%s query=%s client=%s",
+        request.method,
+        request.url.path,
+        request.url.query,
+        client_host,
+    )
     return JSONResponse(
         status_code=500,
         content={
