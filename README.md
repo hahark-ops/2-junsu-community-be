@@ -10,6 +10,7 @@
 - [기술 스택](#-기술-스택)
 - [CI/CD (과제 8)](#-cicd-과제-8)
 - [추가 과제 (Portainer/Registry)](#-추가-과제-portainerregistry)
+- [Kubernetes 로컬 배포 (Docker Desktop)](#-kubernetes-로컬-배포-docker-desktop)
 - [프로젝트 구조](#-프로젝트-구조)
 - [설치 및 실행](#️-설치-및-실행)
 - [페이지 상세](#-페이지-상세)
@@ -64,6 +65,22 @@
   - `/Users/junsu/Desktop/2-junsu-community-be/deploy.portainer.local.env.example`
 - 상세 가이드
   - `/Users/junsu/Desktop/2-junsu-community-be/docs/PORTAINER_REGISTRY_GUIDE.md`
+
+---
+
+## ☸️ Kubernetes 로컬 배포 (Docker Desktop)
+
+- 스택 구성: `community-be`, `community-fe`, `community-db`, `community-nginx`
+- 매니페스트: `/Users/junsu/Desktop/2-junsu-community-be/k8s/community-workloads.yaml`
+- 배포 스크립트:
+  - `./scripts/k8s_up_local.sh`
+  - `./scripts/k8s_down_local.sh`
+  - `./scripts/k8s_qa_local.sh`
+- 기본 접속:
+  - 앱: `http://127.0.0.1:30080`
+  - Swagger: `http://127.0.0.1:30080/docs`
+- 상세 가이드:
+  - `/Users/junsu/Desktop/2-junsu-community-be/docs/K8S_LOCAL_GUIDE.md`
 
 ---
 

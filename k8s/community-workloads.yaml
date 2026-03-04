@@ -1,0 +1,391 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: community-db-pvc
+  namespace: __NAMESPACE__
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: community-uploads-pvc
+  namespace: __NAMESPACE__
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-db
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-db
+  template:
+    metadata:
+      labels:
+        app: community-db
+    spec:
+      containers:
+        - name: db
+          image: __DB_IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: community-db-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_NAME
+            - name: MYSQL_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: community-db-secret
+                  key: DB_PASSWORD
+            - name: TZ
+              value: Asia/Seoul
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          volumeMounts:
+            - name: db-data
+              mountPath: /var/lib/mysql
+            - name: db-init
+              mountPath: /docker-entrypoint-initdb.d/01-schema.sql
+              subPath: 01-schema.sql
+      volumes:
+        - name: db-data
+          persistentVolumeClaim:
+            claimName: community-db-pvc
+        - name: db-init
+          configMap:
+            name: community-schema
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: community-db
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: community-db
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-be
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-be
+  template:
+    metadata:
+      labels:
+        app: community-be
+    spec:
+      containers:
+        - name: be
+          image: __BE_IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_HOST
+              value: community-db
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: community-db-secret
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_NAME
+            - name: DB_POOL_NAME
+              value: community_pool
+            - name: DB_POOL_SIZE
+              value: "5"
+            - name: CORS_ALLOW_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: CORS_ALLOW_ORIGINS
+            - name: COOKIE_SECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_SECURE
+            - name: COOKIE_SAMESITE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_SAMESITE
+            - name: COOKIE_MAX_AGE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_MAX_AGE
+            - name: MAX_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_UPLOAD_SIZE_BYTES
+            - name: MAX_PROFILE_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_PROFILE_UPLOAD_SIZE_BYTES
+            - name: MAX_POST_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_POST_UPLOAD_SIZE_BYTES
+            - name: UPLOAD_PROVIDER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: UPLOAD_PROVIDER
+            - name: UPLOAD_DIR
+              value: uploads
+            - name: UPLOAD_LAMBDA_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: UPLOAD_LAMBDA_API_URL
+            - name: UPLOAD_INTERNAL_TOKEN
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: UPLOAD_INTERNAL_TOKEN
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_BUCKET_NAME
+            - name: S3_OBJECT_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_OBJECT_PREFIX
+            - name: S3_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_BASE_URL
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: AWS_SESSION_TOKEN
+            - name: BCRYPT_ROUNDS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: BCRYPT_ROUNDS
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: be-uploads
+              mountPath: /app/uploads
+      volumes:
+        - name: be-uploads
+          persistentVolumeClaim:
+            claimName: community-uploads-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: community-be
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: community-be
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-fe
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-fe
+  template:
+    metadata:
+      labels:
+        app: community-fe
+    spec:
+      containers:
+        - name: fe
+          image: __FE_IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: BACKEND_TARGET
+              value: http://community-be:8000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: community-fe
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: community-fe
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-nginx
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-nginx
+  template:
+    metadata:
+      labels:
+        app: community-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: community-nginx-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: community-nginx
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: community-nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      nodePort: __NODE_PORT__
+  type: NodePort
