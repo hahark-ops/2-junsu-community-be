@@ -1,6 +1,6 @@
 # CI/CD 실행 가이드 (과제 8)
 
-최종 업데이트: 2026-02-27 (KST)
+최종 업데이트: 2026-03-04 (KST)
 
 ## 1. 운영 기준
 
@@ -11,6 +11,7 @@
 - `workflow_dispatch` 수동 배포도 유지
 - ECS/Lambda는 과제 8 증빙용 수동 실행 경로로 유지
 - QA 후 기본 정책은 `stop`
+- EC2가 `stopped` 상태면 `deploy-ec2`는 자동 기동 없이 실패 처리(비용 통제)
 
 ## 2. 워크플로우 파일
 
@@ -42,13 +43,15 @@
 - 동작:
   1. OIDC 인증
   2. ECR 로그인
-  3. BE/FE/DB 이미지 빌드 및 푸시
-  4. SSM 원격 명령으로 `deploy.proxy.env` 이미지 태그 갱신
-  5. `/opt/2-junsu-community-be/scripts/proxy_up_single_ec2.sh` 실행
-  6. EC2 내부 smoke (`qa_ec2_smoke.sh`) 실행
-  7. 성공 태그를 SSM Parameter에 저장
-  8. 실패 시 이전 성공 태그로 자동 롤백
-  9. `concurrency`로 동일 브랜치 중복 배포 방지
+  3. 배포 시크릿 precheck(`DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`) fail-fast
+  4. BE/FE/DB 이미지 빌드 및 푸시
+  5. SSM 원격 명령으로 `deploy.proxy.env` 이미지 태그 갱신
+  6. `/opt/2-junsu-community-be/scripts/ensure_deploy_proxy_env.sh`를 `MODE=deploy`로 실행(placeholder 차단)
+  7. `/opt/2-junsu-community-be/scripts/proxy_up_single_ec2.sh` 실행
+  8. EC2 내부 smoke (`qa_ec2_smoke.sh`) 실행
+  9. 성공 태그를 SSM Parameter에 저장
+  10. 실패 시 이전 성공 태그로 자동 롤백
+  11. `concurrency`로 동일 브랜치 중복 배포 방지
 
 ## 3.3 `deploy-ecs.yml`
 

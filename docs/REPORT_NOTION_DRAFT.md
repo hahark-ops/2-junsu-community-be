@@ -1,6 +1,6 @@
 # 커뮤니티 프로젝트 보고서 초안 (노션 제출용)
 
-최종 업데이트: 2026-03-03 (KST)
+최종 업데이트: 2026-03-04 (KST)
 
 ## 0. 문서 목적
 
@@ -18,7 +18,7 @@
   - API Gateway(`community-dev-be-http-api`) -> Lambda(`community-dev-be-api`)
   - Lambda DB 연동: EC2 MySQL(`10.20.27.37:13306`)
 - 파일 업로드:
-  - 기본: API Gateway -> Lambda -> S3 (Presigned URL)
+  - 기본: FE -> BE(`/v1/files/upload-url`, 인증) -> API Gateway -> Lambda -> S3 (Presigned URL)
   - 폴백: BE `/v1/files/upload`
 - 부가 서비스:
   - API Gateway + Lambda(analytics, upload)
@@ -70,10 +70,11 @@ flowchart TD
 
     U -->|"1. 브라우저 접속 (HTTP)"| NG
     NG -->|"2. 일반 API (/v1/*)"| BE
-    U -->|"3. 이미지 업로드 URL 요청"| APIGW_UPLOAD
-    U -->|"4. Presigned URL PUT"| S3
-    U -->|"5. Lambda API 검증 경로"| APIGW_BE
-    U -->|"6. 분석 API"| APIGW_ANALYTICS
+    U -->|"3. 이미지 업로드 URL 요청 (/v1/files/upload-url)"| BE
+    BE -->|"4. 내부 호출 (X-Upload-Internal-Token)"| APIGW_UPLOAD
+    U -->|"5. Presigned URL PUT"| S3
+    U -->|"6. Lambda API 검증 경로"| APIGW_BE
+    U -->|"7. 분석 API"| APIGW_ANALYTICS
 
     classDef layer fill:#3b3f46,stroke:#8b8f96,color:#ffffff;
     classDef orange fill:#ff9800,stroke:#c77700,color:#ffffff;
@@ -134,8 +135,9 @@ flowchart LR
 1. 사용자 요청 -> Nginx(80) -> FE 정적 파일 응답
 2. API 요청 -> Nginx 리버스 프록시 -> BE API
 3. 이미지 업로드:
-   - FE -> API Gateway(`/v1/files/upload-url`) -> Lambda -> S3 Presigned URL
+   - FE -> BE(`/v1/files/upload-url`, 인증 필요) -> API Gateway -> Lambda -> S3 Presigned URL
    - FE -> S3 직접 PUT
+   - API Gateway 직접 호출(내부 토큰 없음)은 401 차단
 4. 분석 호출:
    - FE/운영도구 -> API Gateway(`/v1/analytics/health`) -> Lambda -> Athena
 5. Lambda BE 검증 경로:
@@ -240,7 +242,7 @@ flowchart LR
   - `21-output-after.txt`
   - `22-state-after-apply.txt`
 
-### 4.3 과제 10/11 증빙
+### 4.3 과제 10/11 증빙 (2026-03-04 기준)
 
 - 과제 10 (테스트코드 -> CI 게이트)
   - CI 성공 run(기본 기능 테스트 통과): `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544670598`
@@ -251,8 +253,21 @@ flowchart LR
   - CI 성공 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544670598`
   - 배포 성공 run: `https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544690983`
   - EC2 내부 헬스: `curl http://127.0.0.1/` -> `HTTP/1.1 200 OK`
+  - 추가 운영 정책 검증:
+    - EC2가 `stopped` 상태면 `deploy-ec2`는 자동 기동 없이 실패 처리(비용 통제 목적)
+    - 의도: push 자동배포 유지 + 인스턴스 수동 기동 시에만 실제 배포 허용
 
-### 4.4 과제 6 최신 상태 (2026-03-03)
+### 4.4 최신 수동 배포 검증 (2026-03-04)
+
+- 배포 커밋/태그:
+  - commit: `1907f3e`
+  - 이미지 태그: `sha-1907f3e`
+- EC2 수동 배포 검증 결과:
+  - `curl http://127.0.0.1/` -> `200`
+  - `curl http://127.0.0.1/docs` -> `200`
+  - 이후 비용 통제를 위해 BE EC2 `stop` 적용
+
+### 4.5 과제 6 최신 상태 (2026-03-03)
 
 - Lambda BE API 재배포 및 DB 연동 복구
   - `/` -> `200`
