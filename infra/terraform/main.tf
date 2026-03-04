@@ -1070,6 +1070,7 @@ resource "aws_lambda_function" "upload_handler" {
     variables = {
       UPLOAD_BUCKET         = aws_s3_bucket.uploads.id
       UPLOAD_INTERNAL_TOKEN = random_password.upload_internal_token.result
+      ALLOWED_ORIGIN        = var.upload_allowed_origin
     }
   }
 

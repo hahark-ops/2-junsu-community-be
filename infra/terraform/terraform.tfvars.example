@@ -20,8 +20,8 @@ upload_bucket_name     = ""
 cloudtrail_bucket_name = ""
 athena_results_bucket_name = ""
 
-# S3 CORS 허용 Origin (ALB DNS 또는 FE 도메인)
-upload_allowed_origin = "*"
+# 업로드 경로(S3/Lambda) CORS 허용 Origin (단일 Origin, '*' 금지)
+upload_allowed_origin = "http://localhost:3000"
 
 # 선택: 초기 부트스트랩 자동 clone (비우면 생략)
 fe_repo_url    = ""

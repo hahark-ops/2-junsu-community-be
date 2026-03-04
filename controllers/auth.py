@@ -3,11 +3,10 @@ import uuid
 
 from fastapi import Response
 
-from models import auth_model, user_model
+from models import auth_model
 from utils import (
     APIException,
     hash_password,
-    is_hashed_password,
     validate_email,
     validate_nickname,
     validate_nickname_length,
@@ -145,9 +144,6 @@ async def auth_login(response: Response, login_data: dict):
 
     if user.get("is_deleted"):
         raise APIException(code="LOGIN_FAILED", message="탈퇴한 회원입니다.", status_code=403)
-
-    if not is_hashed_password(user.get("password")):
-        user_model.update_user_password(user["userId"], hash_password(login_data["password"]))
 
     session_id = str(uuid.uuid4())
     auth_model.create_session(session_id=session_id, user_email=user["email"])

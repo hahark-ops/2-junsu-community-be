@@ -14,6 +14,7 @@ const UPLOAD_BUCKET = process.env.UPLOAD_BUCKET;
 const AWS_REGION =
   process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-northeast-2";
 const UPLOAD_INTERNAL_TOKEN = (process.env.UPLOAD_INTERNAL_TOKEN || "").trim();
+const ALLOWED_ORIGIN = (process.env.ALLOWED_ORIGIN || "http://localhost:3000").trim();
 
 const s3 = new S3Client({ region: AWS_REGION });
 
@@ -22,8 +23,8 @@ function response(statusCode, payload) {
     statusCode,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "*",
+      "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+      "Access-Control-Allow-Headers": "Content-Type,X-Upload-Internal-Token",
       "Access-Control-Allow-Methods": "OPTIONS,POST",
     },
     body: JSON.stringify(payload),

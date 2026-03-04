@@ -77,6 +77,7 @@
 - 업로드 보안:
   - Presigned URL 발급은 인증된 BE 경유 `POST /v1/files/upload-url`만 허용
   - 업로드 Lambda는 `X-Upload-Internal-Token` 헤더가 없는 직접 호출을 차단
+  - `upload_allowed_origin`은 단일 Origin만 허용하며 `"*"`는 `terraform validate`에서 차단
 - 배포 env 보안:
   - `scripts/ensure_deploy_proxy_env.sh`는 `MODE=deploy`에서 DB 비밀번호를 fail-fast로 검증합니다.
   - `MYSQL_ROOT_PASSWORD`, `DB_PASSWORD`가 빈값/placeholder(`change_me_*`, `community_*`)면 배포를 중단합니다.

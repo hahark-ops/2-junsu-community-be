@@ -76,7 +76,23 @@ def delete_session(session_id: str):
             raise
 
 
+def purge_expired_sessions(limit: int = 500):
+    safe_limit = max(1, min(int(limit), 5000))
+    with get_cursor(dictionary=False) as (conn, cursor):
+        try:
+            cursor.execute("DELETE FROM sessions WHERE expiresAt <= NOW() LIMIT %s", (safe_limit,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def get_user_email_by_session_id(session_id: str):
+    try:
+        purge_expired_sessions()
+    except Exception as exc:
+        print(f"Expired session purge failed: {exc}")
+
     with get_cursor() as (_, cursor):
         cursor.execute(
             "SELECT userEmail FROM sessions WHERE sessionId = %s AND expiresAt > NOW()",

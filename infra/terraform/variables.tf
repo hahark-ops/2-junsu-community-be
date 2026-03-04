@@ -128,9 +128,14 @@ variable "athena_results_bucket_name" {
 }
 
 variable "upload_allowed_origin" {
-  description = "S3 CORS 허용 Origin"
+  description = "업로드 경로(S3/Lambda) CORS 허용 Origin (단일 Origin)"
   type        = string
-  default     = "*"
+  default     = "http://localhost:3000"
+
+  validation {
+    condition     = trimspace(var.upload_allowed_origin) != "*" && can(regex("^https?://", trimspace(var.upload_allowed_origin)))
+    error_message = "upload_allowed_origin은 '*'를 사용할 수 없으며 http(s) 단일 Origin 형식이어야 합니다. 예: http://localhost:3000"
+  }
 }
 
 variable "fe_repo_url" {

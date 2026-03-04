@@ -58,8 +58,8 @@ def verify_password(plain_password: str, stored_password: str | None) -> bool:
         except ValueError:
             return False
 
-    # Legacy plaintext compatibility for existing data.
-    return plain_password == stored_password
+    # Plaintext-stored passwords are not supported.
+    return False
 
 class APIException(HTTPException):
     def __init__(self, code: str, message: str, status_code: int):

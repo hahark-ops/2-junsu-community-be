@@ -42,6 +42,7 @@ cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
 - `admin_cidr="0.0.0.0/0"`는 `terraform validate`에서 차단됩니다.
 - `enable_rds` 기본값은 `false`입니다. RDS가 필요한 경우에만 `true`로 명시하세요.
 - `enable_rds=false`로 운영할 때 ECS/Lambda 경로는 `db_host_override`를 함께 지정해야 합니다.
+- `upload_allowed_origin`은 단일 Origin만 허용하며 `"*"`는 `terraform validate`에서 차단됩니다.
 
 권장:
 - `project_name`
@@ -85,6 +86,7 @@ UPLOAD_LAMBDA_API_URL=<upload_api_route_url>
 보안 기본 정책:
 - API Gateway 업로드 Lambda는 내부 토큰(`X-Upload-Internal-Token`)이 없는 요청을 차단합니다.
 - 업로드 URL 발급은 **인증된 BE 경유**(`POST /v1/files/upload-url`)만 허용합니다.
+- 업로드 Lambda CORS는 `upload_allowed_origin` 단일 값으로만 응답합니다.
 
 즉, 브라우저/외부에서 API Gateway 업로드 경로를 직접 호출하는 방식은 기본 차단됩니다.
 
