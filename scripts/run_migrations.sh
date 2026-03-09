@@ -7,6 +7,7 @@ ENV_FILE="${2:-}"
 MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260226_add_session_expiry.sql"
 LIKE_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_ensure_like_unique.sql"
 DM_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_add_dm_tables.sql"
+DM_READ_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_add_dm_room_reads.sql"
 SCHEMA_FILE="${ROOT_DIR}/schema.sql"
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
@@ -26,6 +27,11 @@ fi
 
 if [[ ! -f "${DM_MIGRATION_FILE}" ]]; then
   echo "마이그레이션 파일이 없습니다: ${DM_MIGRATION_FILE}"
+  exit 1
+fi
+
+if [[ ! -f "${DM_READ_MIGRATION_FILE}" ]]; then
+  echo "마이그레이션 파일이 없습니다: ${DM_READ_MIGRATION_FILE}"
   exit 1
 fi
 
@@ -153,4 +159,21 @@ else
   echo "DM 테이블 마이그레이션 적용 중..."
   compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_MIGRATION_FILE}"
   echo "마이그레이션 적용 완료: $(basename "${DM_MIGRATION_FILE}")"
+fi
+
+dm_reads_exists="$(compose_exec exec -T db sh -lc '
+mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
+SELECT COUNT(*)
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = '\''dm_room_reads'\''
+"
+')"
+
+if [[ "${dm_reads_exists:-0}" -eq 1 ]]; then
+  echo "DM 읽음 상태 테이블이 이미 반영되어 있어 마이그레이션을 건너뜁니다."
+else
+  echo "DM 읽음 상태 마이그레이션 적용 중..."
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_READ_MIGRATION_FILE}"
+  echo "마이그레이션 적용 완료: $(basename "${DM_READ_MIGRATION_FILE}")"
 fi

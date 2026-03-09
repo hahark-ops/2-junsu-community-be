@@ -83,3 +83,15 @@ CREATE TABLE IF NOT EXISTS dm_messages (
     FOREIGN KEY (roomId) REFERENCES dm_rooms(roomId) ON DELETE CASCADE,
     FOREIGN KEY (senderEmail) REFERENCES users(email) ON DELETE CASCADE
 );
+
+-- 8. DM 읽음 상태 테이블
+CREATE TABLE IF NOT EXISTS dm_room_reads (
+    roomId INT NOT NULL,
+    userEmail VARCHAR(255) NOT NULL,
+    lastReadMessageId INT DEFAULT NULL,
+    lastReadAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (roomId, userEmail),
+    FOREIGN KEY (roomId) REFERENCES dm_rooms(roomId) ON DELETE CASCADE,
+    FOREIGN KEY (userEmail) REFERENCES users(email) ON DELETE CASCADE,
+    FOREIGN KEY (lastReadMessageId) REFERENCES dm_messages(messageId) ON DELETE SET NULL
+);

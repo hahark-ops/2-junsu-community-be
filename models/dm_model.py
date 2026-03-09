@@ -72,7 +72,22 @@ def list_rooms_for_user(user_email: str):
                 WHERE m.roomId = r.roomId
                 ORDER BY m.messageId DESC
                 LIMIT 1
-            ) AS lastMessageAt
+            ) AS lastMessageAt,
+            (
+                SELECT COUNT(*)
+                FROM dm_messages um
+                WHERE um.roomId = r.roomId
+                  AND um.senderEmail <> %s
+                  AND um.messageId > COALESCE(
+                      (
+                          SELECT rr.lastReadMessageId
+                          FROM dm_room_reads rr
+                          WHERE rr.roomId = r.roomId AND rr.userEmail = %s
+                          LIMIT 1
+                      ),
+                      0
+                  )
+            ) AS unreadCount
         FROM dm_rooms r
         JOIN users partner_a ON partner_a.email = r.userAEmail
         JOIN users partner_b ON partner_b.email = r.userBEmail
@@ -89,7 +104,7 @@ def list_rooms_for_user(user_email: str):
         ) DESC, r.roomId DESC
     """
     with get_cursor() as (_, cursor):
-        cursor.execute(sql, (user_email, user_email, user_email, user_email, user_email))
+        cursor.execute(sql, (user_email, user_email, user_email, user_email, user_email, user_email, user_email))
         return cursor.fetchall()
 
 
@@ -166,3 +181,72 @@ def is_room_participant(room_id: int, user_email: str) -> bool:
         cursor.execute(sql, (room_id, user_email, user_email))
         row = cursor.fetchone() or {"count": 0}
         return int(row["count"]) > 0
+
+
+def get_room_last_message_id(room_id: int):
+    sql = """
+        SELECT messageId
+        FROM dm_messages
+        WHERE roomId = %s
+        ORDER BY messageId DESC
+        LIMIT 1
+    """
+    with get_cursor() as (_, cursor):
+        cursor.execute(sql, (room_id,))
+        row = cursor.fetchone()
+        return row["messageId"] if row else None
+
+
+def get_partner_last_read_message_id(room_id: int, user_email: str):
+    sql = """
+        SELECT lastReadMessageId
+        FROM dm_room_reads
+        WHERE roomId = %s AND userEmail <> %s
+        ORDER BY lastReadAt DESC
+        LIMIT 1
+    """
+    with get_cursor() as (_, cursor):
+        cursor.execute(sql, (room_id, user_email))
+        row = cursor.fetchone()
+        return row["lastReadMessageId"] if row else None
+
+
+def mark_room_as_read(room_id: int, user_email: str, message_id: int | None):
+    if not message_id:
+        return False
+
+    select_sql = """
+        SELECT lastReadMessageId
+        FROM dm_room_reads
+        WHERE roomId = %s AND userEmail = %s
+    """
+    insert_sql = """
+        INSERT INTO dm_room_reads (roomId, userEmail, lastReadMessageId, lastReadAt)
+        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+    """
+    update_sql = """
+        UPDATE dm_room_reads
+        SET lastReadMessageId = %s, lastReadAt = CURRENT_TIMESTAMP
+        WHERE roomId = %s AND userEmail = %s
+    """
+
+    with get_cursor() as (conn, cursor):
+        try:
+            cursor.execute(select_sql, (room_id, user_email))
+            row = cursor.fetchone()
+
+            if not row:
+                cursor.execute(insert_sql, (room_id, user_email, message_id))
+                conn.commit()
+                return True
+
+            last_read_message_id = row.get("lastReadMessageId")
+            if last_read_message_id is not None and int(last_read_message_id) >= int(message_id):
+                return False
+
+            cursor.execute(update_sql, (message_id, room_id, user_email))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise

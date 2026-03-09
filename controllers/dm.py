@@ -28,13 +28,24 @@ def _serialize_room_row(row: dict) -> dict:
         },
         "lastMessage": row.get("lastMessage"),
         "lastMessageAt": _serialize_datetime(row.get("lastMessageAt")),
+        "unreadCount": int(row.get("unreadCount") or 0),
     }
 
 
-def serialize_message_row(row: dict, current_user_id: int) -> dict:
+def serialize_message_row(
+    row: dict,
+    current_user_id: int,
+    current_user_email: str,
+    partner_last_read_message_id: int | None = None,
+) -> dict:
     sender_user_id = row.get("senderUserId")
+    sender_email = row.get("senderEmail")
+    message_id = row.get("messageId")
+    read_by_other = False
+    if sender_email == current_user_email and partner_last_read_message_id is not None:
+        read_by_other = int(message_id or 0) <= int(partner_last_read_message_id)
     return {
-        "messageId": row.get("messageId"),
+        "messageId": message_id,
         "roomId": row.get("roomId"),
         "senderUserId": sender_user_id,
         "senderNickname": row.get("senderNickname"),
@@ -42,6 +53,7 @@ def serialize_message_row(row: dict, current_user_id: int) -> dict:
         "content": row.get("content"),
         "createdAt": _serialize_datetime(row.get("createdAt")),
         "isMine": str(sender_user_id) == str(current_user_id),
+        "readByOther": read_by_other,
     }
 
 
@@ -109,6 +121,7 @@ async def get_my_rooms(current_user: dict):
         "message": "채팅방 목록 조회 성공",
         "data": {
             "rooms": [_serialize_room_row(row) for row in rooms],
+            "totalUnreadCount": sum(int(row.get("unreadCount") or 0) for row in rooms),
         },
     }
 
@@ -116,12 +129,17 @@ async def get_my_rooms(current_user: dict):
 async def get_room_messages(room_id: int, current_user: dict, limit: int = 50):
     require_room_access(room_id, current_user["email"])
     rows = dm_model.list_messages(room_id, limit=limit)
+    partner_last_read_message_id = dm_model.get_partner_last_read_message_id(room_id, current_user["email"])
+    await mark_room_as_read_and_notify(room_id, current_user)
     return {
         "code": "GET_DM_MESSAGES_SUCCESS",
         "message": "메시지 목록 조회 성공",
         "data": {
             "roomId": room_id,
-            "messages": [serialize_message_row(row, current_user["userId"]) for row in rows],
+            "messages": [
+                serialize_message_row(row, current_user["userId"], current_user["email"], partner_last_read_message_id)
+                for row in rows
+            ],
         },
     }
 
@@ -140,10 +158,13 @@ class DMConnectionManager:
         self._connections: dict[int, dict] = defaultdict(dict)
         self._lock = asyncio.Lock()
 
-    async def connect(self, room_id: int, websocket, user_id: int):
+    async def connect(self, room_id: int, websocket, user_id: int, user_email: str):
         await websocket.accept()
         async with self._lock:
-            self._connections[room_id][websocket] = user_id
+            self._connections[room_id][websocket] = {
+                "userId": user_id,
+                "userEmail": user_email,
+            }
 
     async def disconnect(self, room_id: int, websocket):
         async with self._lock:
@@ -159,12 +180,16 @@ class DMConnectionManager:
             targets = list(self._connections.get(room_id, {}).items())
 
         stale = []
-        for websocket, user_id in targets:
+        for websocket, connection in targets:
             try:
                 await websocket.send_json(
                     {
                         "type": "message_created",
-                        "data": serialize_message_row(message_row, user_id),
+                        "data": serialize_message_row(
+                            message_row,
+                            connection["userId"],
+                            connection["userEmail"],
+                        ),
                     }
                 )
             except Exception:
@@ -172,6 +197,24 @@ class DMConnectionManager:
 
         for websocket in stale:
             await self.disconnect(room_id, websocket)
+
+    async def broadcast_event(self, room_id: int, payload: dict):
+        async with self._lock:
+            targets = list(self._connections.get(room_id, {}).keys())
+
+        stale = []
+        for websocket in targets:
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                stale.append(websocket)
+
+        for websocket in stale:
+            await self.disconnect(room_id, websocket)
+
+    async def list_connected_users(self, room_id: int):
+        async with self._lock:
+            return list(self._connections.get(room_id, {}).values())
 
 
 dm_connection_manager = DMConnectionManager()
@@ -182,3 +225,24 @@ async def create_dm_message(room_id: int, current_user: dict, content: str) -> d
     message_content = _validate_message_content(content)
     message_id = dm_model.create_message(room_id, current_user["email"], message_content)
     return dm_model.get_message_by_id(message_id)
+
+
+async def mark_room_as_read_and_notify(room_id: int, current_user: dict):
+    last_message_id = dm_model.get_room_last_message_id(room_id)
+    if not last_message_id:
+        return None
+
+    advanced = dm_model.mark_room_as_read(room_id, current_user["email"], last_message_id)
+    if not advanced:
+        return None
+
+    payload = {
+        "type": "messages_read",
+        "data": {
+            "roomId": room_id,
+            "readerUserId": current_user["userId"],
+            "lastReadMessageId": last_message_id,
+        },
+    }
+    await dm_connection_manager.broadcast_event(room_id, payload)
+    return payload

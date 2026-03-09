@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, WebSocket, WebSocketDisconnect, status
+from starlette.websockets import WebSocketState
 
 from controllers.dm import (
     create_dm_message,
@@ -6,9 +7,11 @@ from controllers.dm import (
     dm_connection_manager,
     get_my_rooms,
     get_room_messages,
+    mark_room_as_read_and_notify,
     require_room_access,
 )
 from dependencies import get_current_user, resolve_user_by_session_id
+from models import dm_model
 from utils import APIException
 
 router = APIRouter(prefix="/v1/dm")
@@ -47,8 +50,9 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
     try:
         current_user = resolve_user_by_session_id(session_id)
         require_room_access(room_id, current_user["email"])
-        await dm_connection_manager.connect(room_id, websocket, current_user["userId"])
+        await dm_connection_manager.connect(room_id, websocket, current_user["userId"], current_user["email"])
         await websocket.send_json({"type": "connected", "roomId": room_id})
+        await mark_room_as_read_and_notify(room_id, current_user)
 
         while True:
             payload = await websocket.receive_json()
@@ -64,8 +68,27 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
 
             message_row = await create_dm_message(room_id, current_user, payload.get("content"))
             await dm_connection_manager.broadcast_message(room_id, message_row)
+            connected_users = await dm_connection_manager.list_connected_users(room_id)
+            for connected_user in connected_users:
+                if connected_user["userEmail"] == current_user["email"]:
+                    continue
+
+                advanced = dm_model.mark_room_as_read(room_id, connected_user["userEmail"], message_row["messageId"])
+                if advanced:
+                    await dm_connection_manager.broadcast_event(
+                        room_id,
+                        {
+                            "type": "messages_read",
+                            "data": {
+                                "roomId": room_id,
+                                "readerUserId": connected_user["userId"],
+                                "lastReadMessageId": message_row["messageId"],
+                            },
+                        },
+                    )
     except APIException as exc:
-        await websocket.accept()
+        if websocket.application_state == WebSocketState.CONNECTING:
+            await websocket.accept()
         await websocket.send_json(
             {
                 "type": "error",
