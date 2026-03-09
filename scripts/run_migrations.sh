@@ -6,6 +6,7 @@ COMPOSE_FILE="${1:-${ROOT_DIR}/docker-compose.yml}"
 ENV_FILE="${2:-}"
 MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260226_add_session_expiry.sql"
 LIKE_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_ensure_like_unique.sql"
+DM_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_add_dm_tables.sql"
 SCHEMA_FILE="${ROOT_DIR}/schema.sql"
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
@@ -20,6 +21,11 @@ fi
 
 if [[ ! -f "${LIKE_MIGRATION_FILE}" ]]; then
   echo "마이그레이션 파일이 없습니다: ${LIKE_MIGRATION_FILE}"
+  exit 1
+fi
+
+if [[ ! -f "${DM_MIGRATION_FILE}" ]]; then
+  echo "마이그레이션 파일이 없습니다: ${DM_MIGRATION_FILE}"
   exit 1
 fi
 
@@ -129,4 +135,22 @@ if [[ "${like_unique_exists:-0}" -eq 0 ]]; then
   echo "마이그레이션 적용 완료: $(basename "${LIKE_MIGRATION_FILE}")"
 else
   echo "좋아요 유니크 제약이 이미 반영되어 있어 마이그레이션을 건너뜁니다."
+fi
+
+dm_tables_status="$(compose_exec exec -T db sh -lc '
+mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
+SELECT
+  (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''dm_rooms'\''),
+  (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''dm_messages'\'')
+"
+')"
+
+IFS=$'\t' read -r dm_rooms_exists dm_messages_exists <<< "${dm_tables_status}"
+
+if [[ "${dm_rooms_exists:-0}" -eq 1 && "${dm_messages_exists:-0}" -eq 1 ]]; then
+  echo "DM 테이블이 이미 반영되어 있어 마이그레이션을 건너뜁니다."
+else
+  echo "DM 테이블 마이그레이션 적용 중..."
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_MIGRATION_FILE}"
+  echo "마이그레이션 적용 완료: $(basename "${DM_MIGRATION_FILE}")"
 fi

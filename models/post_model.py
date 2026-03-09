@@ -18,6 +18,7 @@ def fetch_posts(offset: int, limit: int):
                p.viewCount,
                p.createdAt,
                p.updatedAt,
+               u.userId as authorId,
                u.profileimage as authorProfileImage,
                (SELECT COUNT(*) FROM likes WHERE postId = p.postId) as likeCount,
                (SELECT COUNT(*) FROM comments WHERE postId = p.postId) as commentCount

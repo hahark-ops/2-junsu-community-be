@@ -32,6 +32,8 @@ def _serialize_posts(posts: list[dict]) -> list[dict]:
                 "viewCount": row.get("viewCount"),
                 "createdAt": row.get("createdAt"),
                 "updatedAt": row.get("updatedAt"),
+                "authorId": row.get("authorId"),
+                "userId": row.get("authorId"),
                 "authorProfileImage": row.get("authorProfileImage"),
                 "likeCount": row.get("likeCount", 0),
                 "commentCount": row.get("commentCount", 0),
