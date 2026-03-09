@@ -205,12 +205,20 @@ def _upload_via_lambda_api(upload_type: str, original_filename: str, content: by
     )
 
     if presigned:
-        upload_url, file_url, object_key, _filename = presigned
+        upload_url, file_url, object_key, _filename, content_length = presigned
+        if content_length is not None and int(content_length) != len(content):
+            print(
+                f"Presigned content length mismatch: expected={len(content)}, received={content_length}"
+            )
+            raise HTTPException(status_code=500, detail="업로드 URL 생성 결과가 올바르지 않습니다.")
         try:
             put_resp = requests.put(
                 upload_url,
                 data=content,
-                headers={"Content-Type": content_type},
+                headers={
+                    "Content-Type": content_type,
+                    "Content-Length": str(len(content)),
+                },
                 timeout=30,
             )
         except requests.RequestException as e:

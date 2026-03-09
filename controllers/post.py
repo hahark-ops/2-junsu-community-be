@@ -63,8 +63,12 @@ async def update_post(post_id: int, update_data: dict, current_user: dict):
 
     fields = {}
     if "title" in update_data:
+        if not str(update_data["title"]).strip():
+            raise APIException(code="REQUIRED_FIELDS_MISSING", message="제목과 내용은 필수입니다.", status_code=400)
         fields["title"] = update_data["title"]
     if "content" in update_data:
+        if not str(update_data["content"]).strip():
+            raise APIException(code="REQUIRED_FIELDS_MISSING", message="제목과 내용은 필수입니다.", status_code=400)
         fields["content"] = update_data["content"]
     if "fileUrl" in update_data:
         fields["fileUrl"] = update_data["fileUrl"]
@@ -112,6 +116,9 @@ async def get_post_detail(post_id: int, increase_view: bool = True):
 
     if increase_view:
         post_model.increment_view_count(post_id)
+        refreshed_post = post_model.get_post_detail(post_id)
+        if refreshed_post:
+            target_post = refreshed_post
 
     like_count = post_model.count_likes(post_id)
     comment_count = post_model.count_comments(post_id)
@@ -126,7 +133,7 @@ async def get_post_detail(post_id: int, increase_view: bool = True):
             "content": target_post["content"],
             "fileUrl": target_post["fileUrl"],
             "writer": target_post["writer"],
-            "viewCount": target_post["viewCount"] + (1 if increase_view else 0),
+            "viewCount": target_post["viewCount"],
             "createdAt": target_post["createdAt"],
             "authorProfileImage": target_post["authorProfileImage"],
             "authorId": target_post["authorId"],

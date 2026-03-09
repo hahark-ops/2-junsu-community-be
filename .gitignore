@@ -85,3 +85,7 @@ uploads/
 
 # 로컬 Portainer/Registry 아티팩트
 local/portainer/
+
+# Kubernetes local secret sources
+k8s/config/db-secrets.env
+k8s/config/app-secrets.env

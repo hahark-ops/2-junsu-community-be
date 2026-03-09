@@ -39,21 +39,26 @@
 - 입력:
   - `environment` (`dev|prod`)
   - `image_tag` (옵션)
+  - `source_sha` (옵션, 수동 불변 재배포용)
+  - `fe_ref` (옵션, 수동 FE ref override)
+  - `reuse_existing_images` (옵션, 기본 `false`)
   - `rollback_on_fail` (기본 `true`)
 - 동작:
   1. OIDC 인증
   2. ECR 로그인
   3. 배포 시크릿 precheck(`DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`) fail-fast
   4. GitHub Secrets를 AWS SSM Parameter Store `SecureString`으로 업서트
-  5. FE는 `ci` 아티팩트에 기록된 커밋 SHA를 checkout하고, 수동 실행만 `fe_ref`를 사용
-  6. BE/FE/DB 이미지 빌드 및 푸시
+  5. FE는 `ci` 아티팩트에 기록된 커밋 SHA를 checkout하고, 아티팩트가 없으면 자동배포를 실패 처리한다. 수동 실행은 `fe_ref` 또는 마지막 성공 `fe_sha`를 사용한다.
+  6. `reuse_existing_images=true`이면 기존 ECR 태그를 그대로 재사용하고, `false`일 때만 BE/FE/DB 이미지를 새로 빌드/푸시
   7. SSM 원격 명령으로 `deploy.proxy.env` 이미지 태그 갱신
   8. `/opt/2-junsu-community-be/scripts/ensure_deploy_proxy_env.sh`를 `MODE=deploy`로 실행(placeholder 차단)
   9. `/opt/2-junsu-community-be/scripts/proxy_up_single_ec2.sh` 실행
   10. EC2 내부 smoke (`qa_ec2_smoke.sh`) 실행
-  11. 마지막 성공 `tag + source_sha`를 SSM Parameter에 저장
-  12. 실패 시 이전 성공 `tag + source_sha`로 자동 롤백
+  11. 마지막 성공 `tag + source_sha + fe_sha`를 SSM Parameter에 저장
+  12. 실패 시 이전 성공 `tag + source_sha` 기준으로 자동 롤백
   13. `concurrency`로 동일 브랜치 중복 배포 방지
+  14. `CORS_ALLOW_ORIGINS_DEV/PROD` GitHub Variables가 없으면 배포를 시작하지 않음
+  15. `reuse_existing_images=true`와 명시 `image_tag`로 수행한 수동 immutable 재배포는 마지막 성공 포인터를 덮어쓰지 않음
 
 ## 3.3 `deploy-ecs.yml`
 
@@ -104,6 +109,8 @@
 - `ECR_REPO_DB=community-db`
 - `ECR_REPO_BE_LAMBDA=community-be-lambda`
 - `FE_REPO=<org>/2-junsu-community-fe` (선택, 미지정 시 owner 기준 자동 계산)
+- `CORS_ALLOW_ORIGINS_DEV`
+- `CORS_ALLOW_ORIGINS_PROD`
 - `EC2_INSTANCE_ID_PROXY_DEV`
 - `EC2_INSTANCE_ID_PROXY_PROD`
 - `EC2_DEPLOY_DIR=/opt/2-junsu-community-be`
@@ -135,7 +142,7 @@
 
 ## 7. 롤백 정책
 
-- EC2: SSM Parameter의 이전 `tag + source_sha`로 env 갱신 후 재배포
+- EC2: SSM Parameter의 이전 `tag + source_sha + fe_sha` 기록을 기준으로 불변 아티팩트를 다시 배포
 - ECS: 이전 task definition으로 service 재배포
 - Lambda: alias를 이전 function version으로 되돌림
 

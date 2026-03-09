@@ -42,10 +42,14 @@
   - EC2 배포: 단일 리버스 프록시 + SSM 원격 실행 (기본 운영 경로)
   - 자동 배포: `main/develop` push -> `ci` 성공 시 `deploy-ec2` 자동 실행
   - 동일 태그 재배포: `/Users/junsu/Desktop/2-junsu-community-be/scripts/redeploy_same_tag_ec2.sh`
+    - `reuse_existing_images=true`로 기존 ECR 이미지를 그대로 다시 배포
   - CI 게이트: compile/compose 검증 + 로컬 compose 스모크 테스트
-  - FE checkout ref: 자동 배포는 `ci`가 기록한 FE 커밋 SHA를 사용, 수동 실행은 `fe_ref` override 가능
+  - FE checkout ref: 자동 배포는 `ci`가 기록한 FE 커밋 SHA를 사용, 수동 실행은 `fe_ref` override 또는 마지막 성공 `fe_sha`를 사용
   - 배포 시크릿: GitHub Actions가 SSM payload에 평문을 싣지 않고 AWS SSM Parameter Store `SecureString`에 저장 후 EC2가 직접 조회
-  - EC2 롤백: 마지막 성공 `tag + source_sha` 기준
+  - EC2 롤백: 마지막 성공 `tag + source_sha + fe_sha` 기준
+  - CORS: `CORS_ALLOW_ORIGINS_DEV/PROD` GitHub Variables가 필수이며, 없으면 배포가 즉시 실패
+  - `ci-metadata/fe-source-sha.txt` 아티팩트가 없으면 자동배포는 실패하며, 브랜치명 fallback을 사용하지 않음
+  - 수동 immutable 재배포(`reuse_existing_images=true` + 명시 `image_tag`)는 마지막 성공 포인터를 덮어쓰지 않음
   - ECS/Lambda: 과제 증빙용 수동 실행 경로 유지
   - 실패 시 롤백: EC2 태그 롤백 / ECS task definition 롤백 / Lambda alias 롤백
 - 자세한 변수/시크릿/실행 순서:
@@ -75,6 +79,7 @@
 
 - 스택 구성: `community-be`, `community-fe`, `community-db`, `community-nginx`
 - 선언식 루트: `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`
+- secret 파일은 `.example`만 Git에 남고, 실제 `db-secrets.env`/`app-secrets.env`는 로컬에서 생성합니다.
 - 배포 스크립트:
   - `./scripts/k8s_up_local.sh`
   - `./scripts/k8s_down_local.sh`
@@ -92,6 +97,7 @@
 
 - `infra/terraform/variables.tf` 기준 기본값
   - `minimal_cost_mode=true`
+  - `assign_eip=false`
   - `enable_rds=false` (최소비용 기본 운영)
   - `enable_ecs=false`
   - `enable_nat_gateway=false`
@@ -104,6 +110,8 @@
   - `infra/terraform/backend.tf.example`
   - `infra/terraform/backend.hcl.example`
   - `backend.tf`와 `backend.hcl`을 복사하면 `scripts/infra_*.sh`가 `backend.hcl`을 자동 감지합니다.
+  - `backend.tf`만 있고 `backend.hcl`이 없으면 스크립트는 즉시 실패합니다.
+  - 예외적으로 로컬 state가 필요할 때만 `TF_FORCE_LOCAL_BACKEND=true`를 명시합니다.
 - 업로드 보안:
   - Presigned URL 발급은 인증된 BE 경유 `POST /v1/files/upload-url`만 허용
   - 업로드 Lambda는 `X-Upload-Internal-Token` 헤더가 없는 직접 호출을 차단
@@ -135,7 +143,7 @@ PY
 | 회원가입 | 이메일/비밀번호/닉네임/프로필 이미지 등록 |
 | 로그인 | 이메일/비밀번호 인증, 세션 기반 |
 | 로그아웃 | 세션 종료 및 로컬 데이터 정리 |
-| 회원 탈퇴 | 계정 영구 삭제 |
+| 회원 탈퇴 | 계정 soft delete 처리 |
 
 ### 📝 게시글 관리
 | 기능 | 설명 |
@@ -359,7 +367,7 @@ http://localhost:3000
 | 이메일 표시 | 변경 불가 (읽기 전용) |
 | 프로필 이미지 변경 | 클릭하여 새 이미지 선택 |
 | 닉네임 변경 | 1~10자, 특수문자/공백 불가 |
-| 회원 탈퇴 | 모달 확인 후 계정 삭제 |
+| 회원 탈퇴 | 모달 확인 후 계정 soft delete |
 
 **토스트 알림**:
 - 프로필 수정 완료 시 하단 토스트 표시

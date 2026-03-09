@@ -13,10 +13,19 @@ on:
         description: Optional image tag override
         required: false
         type: string
+      source_sha:
+        description: Optional BE source commit SHA override
+        required: false
+        type: string
       fe_ref:
         description: Optional FE ref override
         required: false
         type: string
+      reuse_existing_images:
+        description: Reuse existing ECR images for the tag without rebuilding
+        required: true
+        type: boolean
+        default: false
       rollback_on_fail:
         description: Rollback to last successful tag on failure
         required: true
@@ -65,46 +74,13 @@ jobs:
 
       - name: Download CI metadata
         if: ${{ github.event_name == 'workflow_run' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
           run-id: ${{ env.WORKFLOW_RUN_ID }}
           name: ci-metadata
           path: ci-metadata
-
-      - name: Resolve FE ref
-        id: fe_ref
-        run: |
-          set -euo pipefail
-          FE_REF="${GITHUB_REF_NAME}"
-
-          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-            FE_REF='${{ inputs.fe_ref }}'
-            if [ -z "${FE_REF}" ]; then
-              FE_REF="${GITHUB_REF_NAME}"
-            fi
-          elif [ "${EVENT_NAME}" = "workflow_run" ]; then
-            if [ -f ci-metadata/fe-source-sha.txt ]; then
-              FE_REF="$(tr -d '\n' < ci-metadata/fe-source-sha.txt)"
-            else
-              FE_REF='${{ github.event.workflow_run.head_branch }}'
-            fi
-          fi
-
-          if [ -z "${FE_REF}" ]; then
-            echo "Failed to resolve FE ref"
-            exit 1
-          fi
-
-          echo "fe_ref=${FE_REF}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout FE
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.FE_REPO }}
-          ref: ${{ steps.fe_ref.outputs.fe_ref }}
-          path: fe-repo
-          token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
 
       - name: Resolve deployment variables
         id: resolve
@@ -113,17 +89,32 @@ jobs:
 
           DEPLOY_ENV="dev"
           TAG_INPUT=""
+          SOURCE_SHA_INPUT=""
+          FE_REF_INPUT=""
+          REUSE_EXISTING_IMAGES="false"
           ROLLBACK_ON_FAIL="true"
           SOURCE_SHA="${GITHUB_SHA}"
+          INPUT_TAG_PROVIDED="false"
 
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             DEPLOY_ENV='${{ inputs.environment }}'
             TAG_INPUT='${{ inputs.image_tag }}'
+            SOURCE_SHA_INPUT='${{ inputs.source_sha }}'
+            FE_REF_INPUT='${{ inputs.fe_ref }}'
+            REUSE_EXISTING_IMAGES='${{ inputs.reuse_existing_images }}'
             ROLLBACK_ON_FAIL='${{ inputs.rollback_on_fail }}'
           elif [ "${EVENT_NAME}" = "workflow_run" ]; then
             if [ -n "${WORKFLOW_RUN_HEAD_SHA}" ]; then
               SOURCE_SHA="${WORKFLOW_RUN_HEAD_SHA}"
             fi
+          fi
+
+          if [ -n "${TAG_INPUT}" ]; then
+            INPUT_TAG_PROVIDED="true"
+          fi
+
+          if [ -n "${SOURCE_SHA_INPUT}" ]; then
+            SOURCE_SHA="${SOURCE_SHA_INPUT}"
           fi
 
           RUN_SMOKE="true"
@@ -134,6 +125,7 @@ jobs:
           S3_BUCKET_NAME='${{ vars.S3_BUCKET_NAME }}'
           S3_OBJECT_PREFIX='${{ vars.S3_OBJECT_PREFIX != '' && vars.S3_OBJECT_PREFIX || 'uploads' }}'
           S3_BASE_URL='${{ vars.S3_BASE_URL }}'
+          CORS_ALLOW_ORIGINS=""
           SECRET_PREFIX="/community/${DEPLOY_ENV}/deploy"
 
           if [ "${DEPLOY_ENV}" = "prod" ]; then
@@ -144,6 +136,7 @@ jobs:
             QA_PASSWORD='${{ secrets.QA_PASSWORD_PROD }}'
             DB_ROOT_PASSWORD='${{ secrets.MYSQL_ROOT_PASSWORD_PROD }}'
             DB_PASSWORD='${{ secrets.DB_PASSWORD_PROD }}'
+            CORS_ALLOW_ORIGINS='${{ vars.CORS_ALLOW_ORIGINS_PROD }}'
           else
             ROLE_ARN='${{ secrets.AWS_ROLE_ARN_DEV }}'
             INSTANCE_ID='${{ vars.EC2_INSTANCE_ID_PROXY_DEV }}'
@@ -152,6 +145,7 @@ jobs:
             QA_PASSWORD='${{ secrets.QA_PASSWORD_DEV }}'
             DB_ROOT_PASSWORD='${{ secrets.MYSQL_ROOT_PASSWORD_DEV }}'
             DB_PASSWORD='${{ secrets.DB_PASSWORD_DEV }}'
+            CORS_ALLOW_ORIGINS='${{ vars.CORS_ALLOW_ORIGINS_DEV }}'
           fi
 
           if [ -z "${ROLE_ARN}" ] || [ -z "${INSTANCE_ID}" ] || [ -z "${PARAM_NAME}" ]; then
@@ -161,6 +155,11 @@ jobs:
 
           if [ -z "${DB_ROOT_PASSWORD}" ] || [ -z "${DB_PASSWORD}" ]; then
             echo "Missing DB secrets for ${DEPLOY_ENV}. Set MYSQL_ROOT_PASSWORD_${DEPLOY_ENV^^} and DB_PASSWORD_${DEPLOY_ENV^^}."
+            exit 1
+          fi
+
+          if [ -z "${CORS_ALLOW_ORIGINS}" ]; then
+            echo "Missing CORS_ALLOW_ORIGINS_${DEPLOY_ENV^^} variable."
             exit 1
           fi
 
@@ -176,12 +175,20 @@ jobs:
 
           if [[ "${PARAM_NAME}" == *_tag ]]; then
             PARAM_SHA_NAME="${PARAM_NAME%_tag}_sha"
+            PARAM_FE_SHA_NAME="${PARAM_NAME%_tag}_fe_sha"
           else
             PARAM_SHA_NAME="${PARAM_NAME}_sha"
+            PARAM_FE_SHA_NAME="${PARAM_NAME}_fe_sha"
           fi
 
           if [ -n "${TAG_INPUT}" ]; then
             TAG="${TAG_INPUT}"
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${REUSE_EXISTING_IMAGES}" = "true" ]; then
+            TAG="$(aws ssm get-parameter --name "${PARAM_NAME}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text 2>/dev/null || true)"
+            if [ -z "${TAG}" ] || [ "${TAG}" = "None" ]; then
+              echo "Failed to resolve last successful tag for immutable redeploy."
+              exit 1
+            fi
           else
             TAG="sha-${SOURCE_SHA::7}"
           fi
@@ -191,8 +198,12 @@ jobs:
           printf 'instance_id=%s\n' "${INSTANCE_ID}" >> "$GITHUB_OUTPUT"
           printf 'param_name=%s\n' "${PARAM_NAME}" >> "$GITHUB_OUTPUT"
           printf 'param_sha_name=%s\n' "${PARAM_SHA_NAME}" >> "$GITHUB_OUTPUT"
+          printf 'param_fe_sha_name=%s\n' "${PARAM_FE_SHA_NAME}" >> "$GITHUB_OUTPUT"
           printf 'tag=%s\n' "${TAG}" >> "$GITHUB_OUTPUT"
           printf 'source_sha=%s\n' "${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          printf 'fe_ref_input=%s\n' "${FE_REF_INPUT}" >> "$GITHUB_OUTPUT"
+          printf 'input_tag_provided=%s\n' "${INPUT_TAG_PROVIDED}" >> "$GITHUB_OUTPUT"
+          printf 'reuse_existing_images=%s\n' "${REUSE_EXISTING_IMAGES}" >> "$GITHUB_OUTPUT"
           printf 'rollback_on_fail=%s\n' "${ROLLBACK_ON_FAIL}" >> "$GITHUB_OUTPUT"
           printf 'run_smoke=%s\n' "${RUN_SMOKE}" >> "$GITHUB_OUTPUT"
           printf 'db_name=%s\n' "${DB_NAME}" >> "$GITHUB_OUTPUT"
@@ -202,6 +213,7 @@ jobs:
           printf 's3_bucket_name=%s\n' "${S3_BUCKET_NAME}" >> "$GITHUB_OUTPUT"
           printf 's3_object_prefix=%s\n' "${S3_OBJECT_PREFIX}" >> "$GITHUB_OUTPUT"
           printf 's3_base_url=%s\n' "${S3_BASE_URL}" >> "$GITHUB_OUTPUT"
+          printf 'cors_allow_origins=%s\n' "${CORS_ALLOW_ORIGINS}" >> "$GITHUB_OUTPUT"
           printf 'db_root_password_param=%s\n' "${SECRET_PREFIX}/mysql_root_password" >> "$GITHUB_OUTPUT"
           printf 'db_password_param=%s\n' "${SECRET_PREFIX}/db_password" >> "$GITHUB_OUTPUT"
           printf 'qa_email_param=%s\n' "${SECRET_PREFIX}/qa_email" >> "$GITHUB_OUTPUT"
@@ -212,6 +224,80 @@ jobs:
         with:
           role-to-assume: ${{ steps.resolve.outputs.role_arn }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve immutable refs
+        id: refs
+        run: |
+          set -euo pipefail
+
+          SOURCE_SHA='${{ steps.resolve.outputs.source_sha }}'
+          FE_REF=""
+          IMAGE_TAG='${{ steps.resolve.outputs.tag }}'
+          INPUT_TAG_PROVIDED='${{ steps.resolve.outputs.input_tag_provided }}'
+          REUSE='${{ steps.resolve.outputs.reuse_existing_images }}'
+
+          if [ "${EVENT_NAME}" = "workflow_run" ]; then
+            if [ -f ci-metadata/fe-source-sha.txt ]; then
+              FE_REF="$(tr -d '\n' < ci-metadata/fe-source-sha.txt)"
+            else
+              echo "Missing ci-metadata/fe-source-sha.txt artifact. Refusing non-immutable FE fallback."
+              exit 1
+            fi
+          else
+            FE_REF='${{ steps.resolve.outputs.fe_ref_input }}'
+            if [ "${REUSE}" = "true" ]; then
+              if [ "${INPUT_TAG_PROVIDED}" = "true" ] && { [ -z "${SOURCE_SHA}" ] || [ -z "${FE_REF}" ]; }; then
+                echo "When reuse_existing_images=true and image_tag is provided, source_sha and fe_ref must also be provided."
+                exit 1
+              fi
+              if [ -z "${SOURCE_SHA}" ] || [ "${SOURCE_SHA}" = "None" ]; then
+                SOURCE_SHA="$(aws ssm get-parameter --name "${{ steps.resolve.outputs.param_sha_name }}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text 2>/dev/null || true)"
+              fi
+              if [ -z "${FE_REF}" ]; then
+                FE_REF="$(aws ssm get-parameter --name "${{ steps.resolve.outputs.param_fe_sha_name }}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text 2>/dev/null || true)"
+              fi
+            elif [ -z "${FE_REF}" ]; then
+              FE_REF="$(aws ssm get-parameter --name "${{ steps.resolve.outputs.param_fe_sha_name }}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text 2>/dev/null || true)"
+            fi
+          fi
+
+          if [ -z "${SOURCE_SHA}" ] || [ "${SOURCE_SHA}" = "None" ]; then
+            echo "Failed to resolve source SHA"
+            exit 1
+          fi
+
+          if [ -z "${FE_REF}" ] || [ "${FE_REF}" = "None" ]; then
+            echo "Failed to resolve FE ref"
+            exit 1
+          fi
+
+          if [ "${REUSE}" = "true" ]; then
+            for repo in "${ECR_REPO_BE}" "${ECR_REPO_FE}" "${ECR_REPO_DB}"; do
+              aws ecr describe-images \
+                --region "${AWS_REGION}" \
+                --repository-name "${repo}" \
+                --image-ids imageTag="${IMAGE_TAG}" >/dev/null
+            done
+          fi
+
+          printf 'source_sha=%s\n' "${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          printf 'fe_ref=%s\n' "${FE_REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout resolved BE source
+        run: |
+          set -euo pipefail
+          git fetch --all --prune
+          git checkout -f "${{ steps.refs.outputs.source_sha }}"
+          git reset --hard "${{ steps.refs.outputs.source_sha }}"
+
+      - name: Checkout FE
+        if: ${{ steps.resolve.outputs.reuse_existing_images != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FE_REPO }}
+          ref: ${{ steps.refs.outputs.fe_ref }}
+          path: fe-repo
+          token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
 
       - name: Upsert deploy secrets in Parameter Store
         env:
@@ -330,6 +416,7 @@ jobs:
           fi
 
       - name: Build and push BE/FE/DB images
+        if: ${{ steps.resolve.outputs.reuse_existing_images != 'true' }}
         env:
           REGISTRY: ${{ env.ECR_REGISTRY }}
           TAG: ${{ steps.resolve.outputs.tag }}
@@ -345,6 +432,21 @@ jobs:
           echo "fe_image=${ECR_REGISTRY}/${ECR_REPO_FE}:${{ steps.resolve.outputs.tag }}" >> "$GITHUB_OUTPUT"
           echo "db_image=${ECR_REGISTRY}/${ECR_REPO_DB}:${{ steps.resolve.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve FE SHA for record
+        id: fe_sha
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.resolve.outputs.reuse_existing_images }}" = "true" ]; then
+            FE_SHA='${{ steps.refs.outputs.fe_ref }}'
+          else
+            FE_SHA="$(git -C fe-repo rev-parse HEAD)"
+          fi
+          if [ -z "${FE_SHA}" ] || [ "${FE_SHA}" = "None" ]; then
+            echo "Failed to determine FE SHA"
+            exit 1
+          fi
+          printf 'fe_sha=%s\n' "${FE_SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to EC2 via SSM
         id: ssm_deploy
         run: |
@@ -356,7 +458,7 @@ jobs:
             --arg repo_url "https://github.com/${{ github.repository }}.git" \
             --arg aws_region "${AWS_REGION}" \
             --arg registry "${ECR_REGISTRY}" \
-            --arg commit_sha "${{ steps.resolve.outputs.source_sha }}" \
+            --arg commit_sha "${{ steps.refs.outputs.source_sha }}" \
             --arg be_image "${{ steps.img.outputs.be_image }}" \
             --arg fe_image "${{ steps.img.outputs.fe_image }}" \
             --arg db_image "${{ steps.img.outputs.db_image }}" \
@@ -369,6 +471,7 @@ jobs:
             --arg s3_bucket_name "${{ steps.resolve.outputs.s3_bucket_name }}" \
             --arg s3_object_prefix "${{ steps.resolve.outputs.s3_object_prefix }}" \
             --arg s3_base_url "${{ steps.resolve.outputs.s3_base_url }}" \
+            --arg cors_allow_origins "${{ steps.resolve.outputs.cors_allow_origins }}" \
             --arg qa_email_param "${{ steps.resolve.outputs.qa_email_param }}" \
             --arg qa_password_param "${{ steps.resolve.outputs.qa_password_param }}" \
             --arg qa_nickname "awsai-ci-${{ github.run_id }}" \
@@ -392,7 +495,7 @@ jobs:
               "grep -q \"^DB_IMAGE=\" deploy.proxy.env && sed -i \"s#^DB_IMAGE=.*#DB_IMAGE=" + $db_image + "#\" deploy.proxy.env || echo \"DB_IMAGE=" + $db_image + "\" >> deploy.proxy.env",
               "MYSQL_ROOT_PASSWORD=$(fetch_param \"" + $db_root_password_param + "\")",
               "DB_PASSWORD=$(fetch_param \"" + $db_password_param + "\")",
-              "MODE=deploy MYSQL_ROOT_PASSWORD=\"$MYSQL_ROOT_PASSWORD\" DB_NAME=\"" + $db_name + "\" DB_USER=\"" + $db_user + "\" DB_PASSWORD=\"$DB_PASSWORD\" CORS_ALLOW_ORIGINS=\"http://localhost,http://127.0.0.1\" AWS_REGION=\"" + $aws_region + "\" UPLOAD_PROVIDER=\"" + $upload_provider + "\" UPLOAD_LAMBDA_API_URL=\"" + $upload_lambda_api_url + "\" S3_BUCKET_NAME=\"" + $s3_bucket_name + "\" S3_OBJECT_PREFIX=\"" + $s3_object_prefix + "\" S3_BASE_URL=\"" + $s3_base_url + "\" ./scripts/ensure_deploy_proxy_env.sh deploy.proxy.env",
+              "MODE=deploy MYSQL_ROOT_PASSWORD=\"$MYSQL_ROOT_PASSWORD\" DB_NAME=\"" + $db_name + "\" DB_USER=\"" + $db_user + "\" DB_PASSWORD=\"$DB_PASSWORD\" CORS_ALLOW_ORIGINS=\"" + $cors_allow_origins + "\" AWS_REGION=\"" + $aws_region + "\" UPLOAD_PROVIDER=\"" + $upload_provider + "\" UPLOAD_LAMBDA_API_URL=\"" + $upload_lambda_api_url + "\" S3_BUCKET_NAME=\"" + $s3_bucket_name + "\" S3_OBJECT_PREFIX=\"" + $s3_object_prefix + "\" S3_BASE_URL=\"" + $s3_base_url + "\" ./scripts/ensure_deploy_proxy_env.sh deploy.proxy.env",
               "./scripts/proxy_up_single_ec2.sh " + $deploy_dir + "/deploy.proxy.env",
               "if [ \"" + $run_smoke + "\" = \"true\" ]; then QA_EMAIL=$(fetch_param \"" + $qa_email_param + "\"); QA_PASSWORD=$(fetch_param \"" + $qa_password_param + "\"); BASE_URL=http://127.0.0.1 QA_EMAIL=\"$QA_EMAIL\" QA_PASSWORD=\"$QA_PASSWORD\" QA_NICKNAME=\"" + $qa_nickname + "\" ./scripts/qa_ec2_smoke.sh; else echo \"Smoke skipped (prod optional credentials)\"; fi"
             ]}' > "$PARAMS_JSON"
@@ -445,6 +548,11 @@ jobs:
       - name: Save successful tag
         if: ${{ success() }}
         run: |
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ steps.resolve.outputs.reuse_existing_images }}" = "true" ] && [ "${{ steps.resolve.outputs.input_tag_provided }}" = "true" ]; then
+            echo "Manual immutable redeploy with explicit image_tag completed. Keeping previous last-success markers unchanged."
+            exit 0
+          fi
+
           aws ssm put-parameter \
             --region "${AWS_REGION}" \
             --name "${{ steps.resolve.outputs.param_name }}" \
@@ -456,7 +564,14 @@ jobs:
             --region "${AWS_REGION}" \
             --name "${{ steps.resolve.outputs.param_sha_name }}" \
             --type String \
-            --value "${{ steps.resolve.outputs.source_sha }}" \
+            --value "${{ steps.refs.outputs.source_sha }}" \
+            --overwrite
+
+          aws ssm put-parameter \
+            --region "${AWS_REGION}" \
+            --name "${{ steps.resolve.outputs.param_fe_sha_name }}" \
+            --type String \
+            --value "${{ steps.fe_sha.outputs.fe_sha }}" \
             --overwrite
 
       - name: Rollback on failure
@@ -510,6 +625,7 @@ jobs:
             --arg s3_bucket_name "${{ steps.resolve.outputs.s3_bucket_name }}" \
             --arg s3_object_prefix "${{ steps.resolve.outputs.s3_object_prefix }}" \
             --arg s3_base_url "${{ steps.resolve.outputs.s3_base_url }}" \
+            --arg cors_allow_origins "${{ steps.resolve.outputs.cors_allow_origins }}" \
             '{commands:[
               "set -euo pipefail",
               "if ! command -v git >/dev/null 2>&1; then if command -v dnf >/dev/null 2>&1; then dnf install -y git; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y git; else echo \"git 설치 실패\"; exit 1; fi; fi",
@@ -529,7 +645,7 @@ jobs:
               "grep -q \"^DB_IMAGE=\" deploy.proxy.env && sed -i \"s#^DB_IMAGE=.*#DB_IMAGE=" + $db_image + "#\" deploy.proxy.env || echo \"DB_IMAGE=" + $db_image + "\" >> deploy.proxy.env",
               "MYSQL_ROOT_PASSWORD=$(fetch_param \"" + $db_root_password_param + "\")",
               "DB_PASSWORD=$(fetch_param \"" + $db_password_param + "\")",
-              "MODE=deploy MYSQL_ROOT_PASSWORD=\"$MYSQL_ROOT_PASSWORD\" DB_NAME=\"" + $db_name + "\" DB_USER=\"" + $db_user + "\" DB_PASSWORD=\"$DB_PASSWORD\" CORS_ALLOW_ORIGINS=\"http://localhost,http://127.0.0.1\" AWS_REGION=\"" + $aws_region + "\" UPLOAD_PROVIDER=\"" + $upload_provider + "\" UPLOAD_LAMBDA_API_URL=\"" + $upload_lambda_api_url + "\" S3_BUCKET_NAME=\"" + $s3_bucket_name + "\" S3_OBJECT_PREFIX=\"" + $s3_object_prefix + "\" S3_BASE_URL=\"" + $s3_base_url + "\" ./scripts/ensure_deploy_proxy_env.sh deploy.proxy.env",
+              "MODE=deploy MYSQL_ROOT_PASSWORD=\"$MYSQL_ROOT_PASSWORD\" DB_NAME=\"" + $db_name + "\" DB_USER=\"" + $db_user + "\" DB_PASSWORD=\"$DB_PASSWORD\" CORS_ALLOW_ORIGINS=\"" + $cors_allow_origins + "\" AWS_REGION=\"" + $aws_region + "\" UPLOAD_PROVIDER=\"" + $upload_provider + "\" UPLOAD_LAMBDA_API_URL=\"" + $upload_lambda_api_url + "\" S3_BUCKET_NAME=\"" + $s3_bucket_name + "\" S3_OBJECT_PREFIX=\"" + $s3_object_prefix + "\" S3_BASE_URL=\"" + $s3_base_url + "\" ./scripts/ensure_deploy_proxy_env.sh deploy.proxy.env",
               "./scripts/proxy_up_single_ec2.sh " + $deploy_dir + "/deploy.proxy.env"
             ]}' > "$PARAMS_JSON"
 

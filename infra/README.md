@@ -44,6 +44,7 @@ cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
 - `enable_rds=false`로 운영할 때 ECS/Lambda 경로는 `db_host_override`를 함께 지정해야 합니다.
 - `upload_allowed_origin`은 단일 Origin만 허용하며 `"*"`는 `terraform validate`에서 차단됩니다.
 - `minimal_cost_mode=true`가 기본값이며, NAT/ALB/EFS/CloudTrail은 명시적으로 opt-in 해야 생성됩니다.
+- `assign_eip=false`가 기본값입니다. 공인 IP 고정이 필요할 때만 `assign_eip=true`를 명시하세요.
 
 원격 backend를 사용할 경우:
 
@@ -54,7 +55,8 @@ cp infra/terraform/backend.hcl.example infra/terraform/backend.hcl
 
 - `backend.hcl`에는 실제 S3 bucket/key를 채웁니다.
 - `scripts/infra_apply.sh`, `scripts/infra_plan.sh`, `scripts/infra_destroy.sh`, `scripts/infra_outputs.sh`는 `backend.tf`가 있을 때 `backend.hcl`을 자동 감지합니다.
-- `backend.tf`만 있고 `backend.hcl`이 없으면 로컬 모드(`-backend=false`)로 초기화합니다.
+- `backend.tf`만 있고 `backend.hcl`이 없으면 스크립트는 즉시 실패합니다.
+- 예외적으로 로컬 state가 필요할 때만 `TF_FORCE_LOCAL_BACKEND=true`를 명시합니다.
 
 권장:
 - `project_name`

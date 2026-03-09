@@ -106,7 +106,7 @@ variable "db_max_allocated_storage" {
 variable "assign_eip" {
   description = "FE/BE 인스턴스에 Elastic IP 연결 여부"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "minimal_cost_mode" {

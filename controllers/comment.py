@@ -64,6 +64,8 @@ async def update_comment(post_id: int, comment_id: int, update_data: dict, curre
         raise APIException(code="NOT_THE_COMMENT_AUTHOR", message="본인이 작성한 댓글만 수정할 수 있습니다.", status_code=403)
     
     if "content" in update_data:
+        if not str(update_data["content"]).strip():
+            raise APIException(code="REQUIRED_FIELDS_MISSING", message="댓글 내용은 필수입니다.", status_code=400)
         comment_model.update_comment_content(comment_id, update_data["content"])
     
     updated_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")

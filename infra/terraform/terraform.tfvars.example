@@ -10,6 +10,7 @@ key_pair_name = "your-keypair-name"
 
 # RDS
 minimal_cost_mode = true
+assign_eip = false
 enable_nat_gateway = false
 enable_alb = false
 enable_efs = false

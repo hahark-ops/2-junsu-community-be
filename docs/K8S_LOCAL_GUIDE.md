@@ -13,15 +13,18 @@
 - 로컬 레지스트리 태그만 있는 경우(`localhost:5001/community-*:local`)도 `/Users/junsu/Desktop/2-junsu-community-be/scripts/k8s_up_local.sh`가 자동으로 `community-*:local` 태그로 변환합니다.
 - K8s 자산은 `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml` 기준으로 `kubectl apply -k` 한 번에 배포됩니다.
 - 민감값은 `Secret`으로 분리되어 있고, `ConfigMap`에는 비민감 설정만 들어갑니다.
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/db-secrets.env`, `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app-secrets.env`는 로컬 재현용 더미 값입니다. 실제 키/비밀번호가 필요하면 복사본에서 덮어써 사용합니다.
+- `k8s/kustomization.yaml`의 기본 namespace는 `community-local`입니다.
+- `NAMESPACE=... ./scripts/k8s_up_local.sh`로 실행하면 스크립트가 임시 kustomization에 target namespace를 강제로 다시 써서 apply합니다.
+- 실제 secret 원본 파일은 Git에 포함하지 않습니다. `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/db-secrets.env.example`, `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app-secrets.env.example`만 추적합니다.
+- `kubectl kustomize /Users/junsu/Desktop/2-junsu-community-be/k8s`는 `.example` secret 값으로 항상 렌더됩니다. 실제 apply는 `scripts/k8s_up_local.sh`가 임시 kustomization에서 `.env` 파일로 바꿔 수행합니다.
 
 ## 2) 선언식 구성
 주요 파일:
 - `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`
 - `/Users/junsu/Desktop/2-junsu-community-be/k8s/community-workloads.yaml`
 - `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app.env`
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/db-secrets.env`
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app-secrets.env`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/db-secrets.env.example`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app-secrets.env.example`
 
 검증:
 ```bash
@@ -29,7 +32,28 @@ cd /Users/junsu/Desktop/2-junsu-community-be
 kubectl kustomize k8s >/tmp/community-k8s-rendered.yaml
 ```
 
-## 3) 배포
+## 3) Secret 파일 준비
+처음 실행 전 한 번은 example 파일을 복사하고 값을 수정해야 합니다.
+
+```bash
+cd /Users/junsu/Desktop/2-junsu-community-be
+cp k8s/config/db-secrets.env.example k8s/config/db-secrets.env
+cp k8s/config/app-secrets.env.example k8s/config/app-secrets.env
+```
+
+수정 대상:
+- `k8s/config/db-secrets.env`
+  - `MYSQL_ROOT_PASSWORD`
+  - `DB_PASSWORD`
+- `k8s/config/app-secrets.env`
+  - `UPLOAD_INTERNAL_TOKEN`
+  - 필요 시 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+
+주의:
+- `change_me_*` placeholder가 남아 있으면 `/Users/junsu/Desktop/2-junsu-community-be/scripts/k8s_up_local.sh`는 apply 전에 실패합니다.
+- secret 파일이 없으면 스크립트가 example에서 자동 복사한 뒤 즉시 종료합니다. 이 경우 값을 수정한 후 다시 실행해야 합니다.
+
+## 4) 배포
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
 ./scripts/k8s_up_local.sh
@@ -45,7 +69,18 @@ DB_IMAGE=community-db:local \
 ./scripts/k8s_up_local.sh
 ```
 
-## 4) 접속
+namespace 동작:
+- 기본 namespace: `community-local`
+- 커스텀 namespace 예시:
+
+```bash
+cd /Users/junsu/Desktop/2-junsu-community-be
+NAMESPACE=community-dev ./scripts/k8s_up_local.sh
+```
+
+- 스크립트는 `k8s/kustomization.yaml`을 임시 디렉터리로 복사한 뒤 target namespace로 다시 써서 `kubectl apply -k`를 실행합니다.
+
+## 5) 접속
 공식 접근 경로는 `NodePort`가 아니라 `kubectl port-forward` 입니다.
 
 기본 경로:
@@ -57,7 +92,7 @@ DB_IMAGE=community-db:local \
 kubectl -n community-local port-forward svc/community-nginx 30080:80
 ```
 
-## 5) 스모크 테스트
+## 6) 스모크 테스트
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
 QA_EMAIL='<qa_email>' QA_PASSWORD='<qa_password>' ./scripts/k8s_qa_local.sh
@@ -65,14 +100,14 @@ QA_EMAIL='<qa_email>' QA_PASSWORD='<qa_password>' ./scripts/k8s_qa_local.sh
 
 `k8s_qa_local.sh`는 기본 URL이 열려 있지 않으면 `svc/community-nginx`에 포트포워드를 다시 붙인 뒤 `/Users/junsu/Desktop/2-junsu-community-be/scripts/qa_ec2_smoke.sh`를 실행합니다.
 
-## 6) 리소스 확인
+## 7) 리소스 확인
 ```bash
 kubectl -n community-local get pods,svc,pvc
 kubectl -n community-local logs deploy/community-be --tail=100
 kubectl -n community-local logs deploy/community-nginx --tail=100
 ```
 
-## 7) 종료
+## 8) 종료
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
 ./scripts/k8s_down_local.sh

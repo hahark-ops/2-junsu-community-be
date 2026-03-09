@@ -12,6 +12,10 @@ PORT_FORWARD_LOG_FILE="/tmp/community-k8s-port-forward-${NAMESPACE}-${PORT_FORWA
 BE_IMAGE="${BE_IMAGE:-community-be:local}"
 FE_IMAGE="${FE_IMAGE:-community-fe:local}"
 DB_IMAGE="${DB_IMAGE:-community-db:local}"
+DB_SECRET_ENV="${K8S_DIR}/config/db-secrets.env"
+DB_SECRET_ENV_EXAMPLE="${K8S_DIR}/config/db-secrets.env.example"
+APP_SECRET_ENV="${K8S_DIR}/config/app-secrets.env"
+APP_SECRET_ENV_EXAMPLE="${K8S_DIR}/config/app-secrets.env.example"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -46,6 +50,30 @@ ensure_image_exists() {
   exit 1
 }
 
+ensure_secret_env_file() {
+  local target_file="$1"
+  local example_file="$2"
+  local file_label="$3"
+
+  if [[ ! -f "${example_file}" ]]; then
+    echo "[ERROR] 예시 secret 파일이 없습니다: ${example_file}"
+    exit 1
+  fi
+
+  if [[ ! -f "${target_file}" ]]; then
+    cp "${example_file}" "${target_file}"
+    echo "[ERROR] ${file_label} 파일이 없어 예시 파일을 생성했습니다: ${target_file}"
+    echo "        값을 수정한 뒤 다시 실행하세요."
+    exit 1
+  fi
+
+  if grep -Eqi 'change_me_|example_|replace_me_' "${target_file}"; then
+    echo "[ERROR] ${file_label}에 placeholder 값이 남아 있습니다: ${target_file}"
+    echo "        example 값을 실제 로컬 값으로 수정한 뒤 다시 실행하세요."
+    exit 1
+  fi
+}
+
 start_port_forward() {
   if [[ -f "${PORT_FORWARD_PID_FILE}" ]]; then
     local existing_pid
@@ -77,13 +105,16 @@ require_cmd kubectl
 require_cmd docker
 require_cmd curl
 
-if ! kubectl cluster-info >/dev/null 2>&1; then
-  echo "Kubernetes 클러스터에 연결할 수 없습니다. Docker Desktop > Kubernetes를 확인하세요."
+if [[ ! -f "${K8S_DIR}/kustomization.yaml" || ! -f "${K8S_DIR}/community-workloads.yaml" ]]; then
+  echo "k8s 매니페스트를 찾을 수 없습니다."
   exit 1
 fi
 
-if [[ ! -f "${K8S_DIR}/kustomization.yaml" || ! -f "${K8S_DIR}/community-workloads.yaml" ]]; then
-  echo "k8s 매니페스트를 찾을 수 없습니다."
+ensure_secret_env_file "${DB_SECRET_ENV}" "${DB_SECRET_ENV_EXAMPLE}" "DB secret"
+ensure_secret_env_file "${APP_SECRET_ENV}" "${APP_SECRET_ENV_EXAMPLE}" "App secret"
+
+if ! kubectl cluster-info >/dev/null 2>&1; then
+  echo "Kubernetes 클러스터에 연결할 수 없습니다. Docker Desktop > Kubernetes를 확인하세요."
   exit 1
 fi
 
@@ -104,12 +135,29 @@ import sys
 tmp_dir = Path(sys.argv[1])
 namespace = sys.argv[2]
 kustomization = tmp_dir / "kustomization.yaml"
-content = kustomization.read_text(encoding="utf-8")
-content = content.replace("namespace: community-local", f"namespace: {namespace}")
-kustomization.write_text(content, encoding="utf-8")
+lines = kustomization.read_text(encoding="utf-8").splitlines()
+updated = []
+namespace_written = False
+
+for line in lines:
+    if line.startswith("namespace:"):
+        updated.append(f"namespace: {namespace}")
+        namespace_written = True
+    else:
+        updated.append(
+            line.replace("config/db-secrets.env.example", "config/db-secrets.env").replace(
+                "config/app-secrets.env.example", "config/app-secrets.env"
+            )
+        )
+
+if not namespace_written:
+    insert_at = 2 if len(updated) >= 2 else len(updated)
+    updated.insert(insert_at, f"namespace: {namespace}")
+
+kustomization.write_text("\n".join(updated) + "\n", encoding="utf-8")
 PY
 
-kubectl apply -k "${TMP_DIR}"
+kubectl apply -k "${TMP_DIR}" --namespace "${NAMESPACE}"
 
 kubectl -n "${NAMESPACE}" rollout status deploy/community-db --timeout=240s
 kubectl -n "${NAMESPACE}" rollout status deploy/community-be --timeout=240s
