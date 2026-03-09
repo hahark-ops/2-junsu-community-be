@@ -8,10 +8,10 @@ from controllers.dm import (
     get_my_rooms,
     get_room_messages,
     mark_room_as_read_and_notify,
+    publish_message_created,
     require_room_access,
 )
 from dependencies import get_current_user, resolve_user_by_session_id
-from models import dm_model
 from utils import APIException
 
 router = APIRouter(prefix="/v1/dm")
@@ -39,8 +39,13 @@ async def get_my_rooms_endpoint(user: dict = Depends(get_current_user)):
 
 
 @router.get("/rooms/{room_id}/messages", status_code=status.HTTP_200_OK)
-async def get_room_messages_endpoint(room_id: int, limit: int = 50, user: dict = Depends(get_current_user)):
-    return await get_room_messages(room_id, user, limit=limit)
+async def get_room_messages_endpoint(
+    room_id: int,
+    limit: int = 50,
+    beforeMessageId: int | None = None,
+    user: dict = Depends(get_current_user),
+):
+    return await get_room_messages(room_id, user, limit=limit, before_message_id=beforeMessageId)
 
 
 @ws_router.websocket("/ws/dm/{room_id}")
@@ -67,25 +72,7 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
                 continue
 
             message_row = await create_dm_message(room_id, current_user, payload.get("content"))
-            await dm_connection_manager.broadcast_message(room_id, message_row)
-            connected_users = await dm_connection_manager.list_connected_users(room_id)
-            for connected_user in connected_users:
-                if connected_user["userEmail"] == current_user["email"]:
-                    continue
-
-                advanced = dm_model.mark_room_as_read(room_id, connected_user["userEmail"], message_row["messageId"])
-                if advanced:
-                    await dm_connection_manager.broadcast_event(
-                        room_id,
-                        {
-                            "type": "messages_read",
-                            "data": {
-                                "roomId": room_id,
-                                "readerUserId": connected_user["userId"],
-                                "lastReadMessageId": message_row["messageId"],
-                            },
-                        },
-                    )
+            await publish_message_created(room_id, message_row)
     except APIException as exc:
         if websocket.application_state == WebSocketState.CONNECTING:
             await websocket.accept()

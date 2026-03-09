@@ -108,9 +108,15 @@ def list_rooms_for_user(user_email: str):
         return cursor.fetchall()
 
 
-def list_messages(room_id: int, limit: int = 50):
+def list_messages(room_id: int, limit: int = 50, before_message_id: int | None = None):
     safe_limit = max(1, min(int(limit), 100))
-    sql = """
+    base_where = "roomId = %s"
+    params: list[int] = [room_id]
+    if before_message_id is not None:
+        base_where += " AND messageId < %s"
+        params.append(int(before_message_id))
+
+    sql = f"""
         SELECT
             m.messageId,
             m.roomId,
@@ -123,16 +129,30 @@ def list_messages(room_id: int, limit: int = 50):
         FROM (
             SELECT *
             FROM dm_messages
-            WHERE roomId = %s
+            WHERE {base_where}
             ORDER BY messageId DESC
             LIMIT %s
         ) m
         JOIN users u ON u.email = m.senderEmail
         ORDER BY m.messageId ASC
     """
+
+    has_more_sql = f"""
+        SELECT 1
+        FROM dm_messages
+        WHERE {base_where}
+        ORDER BY messageId DESC
+        LIMIT %s, 1
+    """
+
     with get_cursor() as (_, cursor):
-        cursor.execute(sql, (room_id, safe_limit))
-        return cursor.fetchall()
+        cursor.execute(sql, tuple(params + [safe_limit]))
+        rows = cursor.fetchall()
+
+        cursor.execute(has_more_sql, tuple(params + [safe_limit]))
+        has_more = cursor.fetchone() is not None
+        oldest_message_id = rows[0]["messageId"] if rows else None
+        return rows, has_more, oldest_message_id
 
 
 def create_message(room_id: int, sender_email: str, content: str):

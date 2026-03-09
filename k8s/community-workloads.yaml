@@ -115,11 +115,57 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: community-be
+  name: community-redis
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
+  selector:
+    matchLabels:
+      app: community-redis
+  template:
+    metadata:
+      labels:
+        app: community-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: community-redis
+spec:
+  selector:
+    app: community-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-be
+spec:
+  replicas: 2
   selector:
     matchLabels:
       app: community-be
@@ -128,6 +174,33 @@ spec:
       labels:
         app: community-be
     spec:
+      initContainers:
+        - name: be-migrate
+          image: community-be:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - scripts/run_migrations_db.py
+          env:
+            - name: DB_HOST
+              value: community-db
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: community-db-secret
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_NAME
       containers:
         - name: be
           image: community-be:local
@@ -158,6 +231,11 @@ spec:
               value: community_pool
             - name: DB_POOL_SIZE
               value: "5"
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: REDIS_URL
             - name: CORS_ALLOW_ORIGINS
               valueFrom:
                 configMapKeyRef:

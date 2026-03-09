@@ -1,6 +1,13 @@
 name: community-local
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: community-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+
   db:
     build:
       context: .
@@ -33,6 +40,8 @@ services:
     container_name: community-be
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_started
       db:
         condition: service_healthy
     env_file:

@@ -1,6 +1,13 @@
 name: community-single-ec2
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: community-redis
+    restart: unless-stopped
+    networks:
+      - community-net
+
   db:
     image: ${DB_IMAGE}
     container_name: community-db
@@ -27,6 +34,8 @@ services:
     container_name: community-be
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_started
       db:
         condition: service_healthy
     environment:
@@ -37,6 +46,7 @@ services:
       DB_NAME: ${DB_NAME}
       DB_POOL_NAME: community_pool
       DB_POOL_SIZE: 5
+      REDIS_URL: ${REDIS_URL}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       COOKIE_SECURE: ${COOKIE_SECURE}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE}

@@ -59,3 +59,39 @@ CREATE TABLE IF NOT EXISTS sessions (
     INDEX idx_sessions_expiresAt (expiresAt),
     FOREIGN KEY (userEmail) REFERENCES users(email) ON DELETE CASCADE
 );
+
+-- 6. 1:1 DM 방 테이블
+CREATE TABLE IF NOT EXISTS dm_rooms (
+    roomId INT AUTO_INCREMENT PRIMARY KEY,
+    userAEmail VARCHAR(255) NOT NULL,
+    userBEmail VARCHAR(255) NOT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_dm_room_pair (userAEmail, userBEmail),
+    FOREIGN KEY (userAEmail) REFERENCES users(email) ON DELETE CASCADE,
+    FOREIGN KEY (userBEmail) REFERENCES users(email) ON DELETE CASCADE
+);
+
+-- 7. DM 메시지 테이블
+CREATE TABLE IF NOT EXISTS dm_messages (
+    messageId INT AUTO_INCREMENT PRIMARY KEY,
+    roomId INT NOT NULL,
+    senderEmail VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_dm_messages_room_created (roomId, createdAt, messageId),
+    FOREIGN KEY (roomId) REFERENCES dm_rooms(roomId) ON DELETE CASCADE,
+    FOREIGN KEY (senderEmail) REFERENCES users(email) ON DELETE CASCADE
+);
+
+-- 8. DM 읽음 상태 테이블
+CREATE TABLE IF NOT EXISTS dm_room_reads (
+    roomId INT NOT NULL,
+    userEmail VARCHAR(255) NOT NULL,
+    lastReadMessageId INT DEFAULT NULL,
+    lastReadAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (roomId, userEmail),
+    FOREIGN KEY (roomId) REFERENCES dm_rooms(roomId) ON DELETE CASCADE,
+    FOREIGN KEY (userEmail) REFERENCES users(email) ON DELETE CASCADE,
+    FOREIGN KEY (lastReadMessageId) REFERENCES dm_messages(messageId) ON DELETE SET NULL
+);

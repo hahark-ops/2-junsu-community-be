@@ -15,10 +15,12 @@ flowchart TD
     FE["Docker: FE"]
     BE["Docker: BE (FastAPI)"]
     MYSQL[("Docker: MySQL DB<br/>(Internal Docker Network)")]
+    REDIS[("Docker: Redis<br/>(DM realtime bus)")]
     EC2 --> NG
     NG --> FE
     NG --> BE
     BE --> MYSQL
+    BE --> REDIS
     end
 
     subgraph BE_LAMBDA_LAYER["BE Lambda Path (Assignment Evidence)"]
@@ -62,7 +64,7 @@ flowchart TD
 
     class EC2_LAYER,BE_LAMBDA_LAYER,STORAGE_LAYER,ANALYTICS_LAYER layer;
     class APIGW_BE,LAMBDA_BE,APIGW_UPLOAD,LAMBDA_UPLOAD,APIGW_ANALYTICS,LAMBDA_ANALYTICS,S3 orange;
-    class MYSQL blue;
+    class MYSQL,REDIS blue;
     class EC2,NG,FE,BE light;
 ```
 
@@ -128,4 +130,5 @@ flowchart TD
 3. 업로드는 BE(`/v1/files/upload-url`)가 API Gateway -> Lambda로 presigned URL을 발급받고, 브라우저가 그 URL로 S3에 직접 업로드한다.
    - 브라우저가 API Gateway upload 경로를 직접 호출하는 것은 내부 토큰 검증으로 차단된다.
 4. 분석 API는 API Gateway -> Lambda -> Athena 경로로 처리한다.
-5. BE Lambda 경로는 API Gateway -> Lambda -> 별도 DB 대상(RDS 또는 `db_host_override`)으로 연결된다.
+5. DM 실시간 분산 구조는 To-Be 기준 Redis pub/sub으로 각 BE Pod의 WebSocket 연결을 fan-out 한다.
+6. BE Lambda 경로는 API Gateway -> Lambda -> 별도 DB 대상(RDS 또는 `db_host_override`)으로 연결된다.

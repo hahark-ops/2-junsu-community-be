@@ -8,6 +8,7 @@
   - `community-be:local`
   - `community-fe:local`
   - `community-db:local`
+  - Redis는 `redis:7-alpine`를 Kubernetes가 직접 pull 합니다.
 
 참고:
 - 로컬 레지스트리 태그만 있는 경우(`localhost:5001/community-*:local`)도 `/Users/junsu/Desktop/2-junsu-community-be/scripts/k8s_up_local.sh`가 자동으로 `community-*:local` 태그로 변환합니다.
@@ -25,6 +26,7 @@
 - `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app.env`
 - `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/db-secrets.env.example`
 - `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app-secrets.env.example`
+- `/Users/junsu/Desktop/2-junsu-community-be/scripts/k8s_dm_multi_pod_proof.sh`
 
 검증:
 ```bash
@@ -100,14 +102,37 @@ QA_EMAIL='<qa_email>' QA_PASSWORD='<qa_password>' ./scripts/k8s_qa_local.sh
 
 `k8s_qa_local.sh`는 기본 URL이 열려 있지 않으면 `svc/community-nginx`에 포트포워드를 다시 붙인 뒤 `/Users/junsu/Desktop/2-junsu-community-be/scripts/qa_ec2_smoke.sh`를 실행합니다.
 
-## 7) 리소스 확인
+## 7) DM 분산 증빙 (Redis + 2 Pods)
+과제 2용으로는 `community-be` Pod 2개가 서로 다른 WebSocket 서버 역할을 맡고, Redis pub/sub이 이벤트를 중계합니다.
+
+```bash
+cd /Users/junsu/Desktop/2-junsu-community-be
+./scripts/k8s_dm_multi_pod_proof.sh
+```
+
+스크립트 동작:
+- `community-be` Pod 2개와 `community-redis` rollout 확인
+- Pod A / Pod B IP를 고정 추출
+- Pod A 내부에서 Python 클라이언트를 실행해
+  - 사용자 2명 생성/로그인
+  - Pod A, Pod B에 각각 직접 WebSocket 연결
+  - A -> B 메시지 전달
+  - B 읽음 이벤트가 A로 돌아오는지 확인
+
+성공 시 예시 출력:
+```json
+{"roomId":12,"podA":"community-be-xxxx","podB":"community-be-yyyy","messageContent":"redis-proof-...","receiverIsMine":false,"senderIsMine":true,"readEventType":"messages_read","roomAUnread":0,"roomBUnread":0}
+```
+
+## 8) 리소스 확인
 ```bash
 kubectl -n community-local get pods,svc,pvc
 kubectl -n community-local logs deploy/community-be --tail=100
+kubectl -n community-local logs deploy/community-redis --tail=100
 kubectl -n community-local logs deploy/community-nginx --tail=100
 ```
 
-## 8) 종료
+## 9) 종료
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
 ./scripts/k8s_down_local.sh

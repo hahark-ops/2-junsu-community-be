@@ -1,13 +1,16 @@
 import asyncio
+import logging
 from collections import defaultdict
 from datetime import datetime
 
 import mysql.connector
 
 from models import dm_model, user_model
+from realtime.redis_bus import publish_room_event
 from utils import APIException
 
 MAX_DM_MESSAGE_LENGTH = 500
+logger = logging.getLogger("community.dm")
 
 
 def _serialize_datetime(value):
@@ -126,9 +129,9 @@ async def get_my_rooms(current_user: dict):
     }
 
 
-async def get_room_messages(room_id: int, current_user: dict, limit: int = 50):
+async def get_room_messages(room_id: int, current_user: dict, limit: int = 50, before_message_id: int | None = None):
     require_room_access(room_id, current_user["email"])
-    rows = dm_model.list_messages(room_id, limit=limit)
+    rows, has_more, oldest_message_id = dm_model.list_messages(room_id, limit=limit, before_message_id=before_message_id)
     partner_last_read_message_id = dm_model.get_partner_last_read_message_id(room_id, current_user["email"])
     await mark_room_as_read_and_notify(room_id, current_user)
     return {
@@ -140,6 +143,8 @@ async def get_room_messages(room_id: int, current_user: dict, limit: int = 50):
                 serialize_message_row(row, current_user["userId"], current_user["email"], partner_last_read_message_id)
                 for row in rows
             ],
+            "hasMore": has_more,
+            "oldestMessageId": oldest_message_id,
         },
     }
 
@@ -216,6 +221,10 @@ class DMConnectionManager:
         async with self._lock:
             return list(self._connections.get(room_id, {}).values())
 
+    async def list_connection_targets(self, room_id: int):
+        async with self._lock:
+            return list(self._connections.get(room_id, {}).items())
+
 
 dm_connection_manager = DMConnectionManager()
 
@@ -244,5 +253,86 @@ async def mark_room_as_read_and_notify(room_id: int, current_user: dict):
             "lastReadMessageId": last_message_id,
         },
     }
-    await dm_connection_manager.broadcast_event(room_id, payload)
+    await publish_room_event(room_id, payload)
     return payload
+
+
+async def publish_message_created(room_id: int, message_row: dict):
+    payload = {
+        "type": "message_created",
+        "data": {
+            "messageId": message_row.get("messageId"),
+            "roomId": message_row.get("roomId"),
+            "senderUserId": message_row.get("senderUserId"),
+            "senderNickname": message_row.get("senderNickname"),
+            "senderProfileImage": message_row.get("senderProfileImage"),
+            "senderEmail": message_row.get("senderEmail"),
+            "content": message_row.get("content"),
+            "createdAt": _serialize_datetime(message_row.get("createdAt")),
+        },
+    }
+    await publish_room_event(room_id, payload)
+
+
+def _serialize_payload_for_connection(payload: dict, current_connection: dict) -> dict:
+    if payload.get("type") != "message_created":
+        return payload
+
+    data = dict(payload.get("data") or {})
+    data["isMine"] = data.get("senderEmail") == current_connection["userEmail"]
+    data["readByOther"] = False
+    data.pop("senderEmail", None)
+    return {"type": "message_created", "data": data}
+
+
+async def _maybe_mark_local_room_as_read(room_id: int, payload: dict):
+    if payload.get("type") != "message_created":
+        return
+
+    data = payload.get("data") or {}
+    sender_email = data.get("senderEmail")
+    message_id = data.get("messageId")
+    sender_user_id = data.get("senderUserId")
+    if not sender_email or not message_id:
+        return
+
+    connected_users = await dm_connection_manager.list_connected_users(room_id)
+    for connected_user in connected_users:
+        if connected_user["userEmail"] == sender_email:
+            continue
+
+        advanced = dm_model.mark_room_as_read(room_id, connected_user["userEmail"], int(message_id))
+        if not advanced:
+            continue
+
+        await publish_room_event(
+            room_id,
+            {
+                "type": "messages_read",
+                "data": {
+                    "roomId": room_id,
+                    "readerUserId": connected_user["userId"],
+                    "lastReadMessageId": int(message_id),
+                    "senderUserId": sender_user_id,
+                },
+            },
+        )
+
+
+async def handle_room_event(room_id: int, payload: dict):
+    if payload.get("type") != "message_created":
+        await dm_connection_manager.broadcast_event(room_id, payload)
+        return
+
+    targets = await dm_connection_manager.list_connection_targets(room_id)
+    stale = []
+    for websocket, connection in targets:
+        try:
+            await websocket.send_json(_serialize_payload_for_connection(payload, connection))
+        except Exception:
+            stale.append(websocket)
+
+    for websocket in stale:
+        await dm_connection_manager.disconnect(room_id, websocket)
+
+    await _maybe_mark_local_room_as_read(room_id, payload)

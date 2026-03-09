@@ -13,7 +13,10 @@
 
 - 클라이언트: Browser
 - 운영 기본 경로: 단일 EC2 Reverse Proxy
-  - Nginx + FE + BE + MySQL Docker Compose
+  - Nginx + FE + BE + MySQL + Redis Docker Compose
+- DM 실시간 경로:
+  - WebSocket + Redis pub/sub
+  - 단일 서버와 다중 Pod(Kubernetes) 모두 같은 이벤트 경로 사용
 - BE Lambda 경로: 과제 증빙용으로 유지
   - API Gateway(`community-dev-be-http-api`) -> Lambda(`community-dev-be-api`)
   - Lambda DB 연동: RDS 또는 `db_host_override`로 지정한 DB 대상
@@ -38,10 +41,12 @@ flowchart TD
     FE["Docker: FE (Node/Static)"]
     BE["Docker: BE (FastAPI)"]
     MYSQL[("Docker: MySQL<br/>(Internal Docker Network)")]
+    REDIS[("Docker: Redis<br/>(DM realtime fan-out)")]
     EC2 --> NG
     NG --> FE
     NG --> BE
     BE --> MYSQL
+    BE --> REDIS
     end
 
     subgraph SERVERLESS_LAYER["Serverless Path (Assignment Evidence)"]
@@ -85,7 +90,7 @@ flowchart TD
 
     class EC2_LAYER,SERVERLESS_LAYER,STORAGE_LAYER,ANALYTICS_LAYER layer;
     class APIGW_BE,LAMBDA_BE,APIGW_UPLOAD,LAMBDA_UPLOAD,APIGW_ANALYTICS,LAMBDA_ANALYTICS,S3 orange;
-    class MYSQL blue;
+    class MYSQL,REDIS blue;
     class EC2,NG,FE,BE light;
 ```
 
@@ -93,6 +98,7 @@ flowchart TD
 
 - 다중 AZ + ALB + Auto Scaling Group(EC2) 또는 ECS 서비스 이중화
 - DB: RDS Multi-AZ + 자동 백업 + 스냅샷 정책
+- DM 실시간 계층: Redis(과제 증빙은 K8s 내부 Redis, 실서비스형은 ElastiCache Redis)
 - 업로드: API Gateway + Lambda + S3 단일 경로로 표준화
 - 관측: CloudWatch 대시보드/알람 + 중앙 로그
 
@@ -103,6 +109,7 @@ flowchart LR
     ASG1["App Node A (AZ-a)"]
     ASG2["App Node B (AZ-c)"]
     RDS["RDS MySQL (Multi-AZ)"]
+    REDIS["Redis / ElastiCache"]
     APIGW["API Gateway"]
     LUP["Lambda: upload-url"]
     LAN["Lambda: analytics"]
@@ -115,6 +122,8 @@ flowchart LR
     ALB --> ASG2
     ASG1 --> RDS
     ASG2 --> RDS
+    ASG1 --> REDIS
+    ASG2 --> REDIS
 
     U --> APIGW
     APIGW --> LUP
@@ -136,13 +145,16 @@ flowchart LR
 
 1. 사용자 요청 -> Nginx(80) -> FE 정적 파일 응답
 2. API 요청 -> Nginx 리버스 프록시 -> BE API
-3. 이미지 업로드:
+3. DM 실시간 통신:
+   - FE -> WebSocket(`/ws/dm/{roomId}`) -> BE
+   - BE -> Redis pub/sub -> 각 Pod/프로세스 로컬 소켓 fan-out
+4. 이미지 업로드:
    - FE -> BE(`/v1/files/upload-url`, 인증 필요) -> API Gateway -> Lambda -> S3 Presigned URL
    - FE -> S3 직접 PUT
    - API Gateway 직접 호출(내부 토큰 없음)은 401 차단
-4. 분석 호출:
+5. 분석 호출:
    - FE/운영도구 -> API Gateway(`/v1/analytics/health`) -> Lambda -> Athena
-5. Lambda BE 검증 경로:
+6. Lambda BE 검증 경로:
    - API Gateway(`/`) -> Lambda(`community-dev-be-api`) -> DB target(RDS 또는 `db_host_override`)
 
 ### 1.4 사용 기술 스택
@@ -276,6 +288,24 @@ flowchart LR
   - `/docs` -> `200`
   - `/v1/auth/me` (비로그인) -> `401`
   - `/v1/posts?limit=1&offset=0` -> `200`
+
+### 4.6 DM 과제 1/2/3/4 정리
+
+- 과제 1. 양방향 통신
+  - 완료
+  - FastAPI WebSocket 기반 1:1 실시간 DM 동작
+- 과제 2. 서버 분산 대응
+  - 이번 배치 구현/검증 대상
+  - Redis pub/sub + Kubernetes `community-be` 2 replicas로 증빙
+- 과제 3. 안 읽은 메시지 확인
+  - 완료
+  - `dm_room_reads`, 읽음 표시, 방별/전체 미읽음 집계 반영
+- 과제 4. 받는 사람 부재 시 알림
+  - 구현하지 않고 설계만 문서화
+  - To-Be
+    1. 메시지 저장 성공
+    2. 상대 사용자가 어떤 Pod에도 연결되어 있지 않으면 notification/outbox 기록
+    3. 이후 웹푸시 또는 모바일푸시로 확장
 
 ## 5. 운영상 한계와 다음 단계
 

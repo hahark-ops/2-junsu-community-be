@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from database import is_db_ready
+from controllers.dm import handle_room_event
+from realtime.redis_bus import is_redis_ready, start_room_event_subscriber, stop_room_event_subscriber
 from routers.index import router as api_router
 from utils import APIException
 
@@ -69,6 +71,16 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 통합 라우터 연결
 app.include_router(api_router)
 
+
+@app.on_event("startup")
+async def startup_event():
+    await start_room_event_subscriber(handle_room_event)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await stop_room_event_subscriber()
+
 def _resolve_upload_dir() -> str:
     upload_dir = os.getenv("UPLOAD_DIR", "uploads").strip() or "uploads"
     if os.getenv("AWS_LAMBDA_FUNCTION_NAME") and not os.path.isabs(upload_dir):
@@ -90,6 +102,11 @@ async def root():
             status_code=503,
             content={"message": "Community Server is Running, but database is unavailable."},
         )
+    if not is_redis_ready():
+        return JSONResponse(
+            status_code=503,
+            content={"message": "Community Server is Running, but realtime broker is unavailable."},
+        )
     return {"message": "Community Server is Running!"}
 
 
@@ -100,4 +117,9 @@ async def readiness():
             status_code=503,
             content={"status": "unready", "database": "unavailable"},
         )
-    return {"status": "ready", "database": "ok"}
+    if not is_redis_ready():
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unready", "database": "ok", "redis": "unavailable"},
+        )
+    return {"status": "ready", "database": "ok", "redis": "ok"}

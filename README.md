@@ -77,17 +77,21 @@
 
 ## ☸️ Kubernetes 로컬 배포 (Docker Desktop)
 
-- 스택 구성: `community-be`, `community-fe`, `community-db`, `community-nginx`
+- 스택 구성: `community-be`(2 replicas), `community-fe`, `community-db`, `community-redis`, `community-nginx`
 - 선언식 루트: `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`
 - secret 파일은 `.example`만 Git에 남고, 실제 `db-secrets.env`/`app-secrets.env`는 로컬에서 생성합니다.
 - 배포 스크립트:
   - `./scripts/k8s_up_local.sh`
   - `./scripts/k8s_down_local.sh`
   - `./scripts/k8s_qa_local.sh`
+  - `./scripts/k8s_dm_multi_pod_proof.sh`
 - 기본 접속:
   - `./scripts/k8s_up_local.sh`가 `svc/community-nginx -> 127.0.0.1:30080` port-forward를 자동 시작
   - 앱: `http://127.0.0.1:30080`
   - Swagger: `http://127.0.0.1:30080/docs`
+- DM 분산 증빙:
+  - `community-be` Pod 2개와 `community-redis`를 같이 띄운 뒤
+  - `./scripts/k8s_dm_multi_pod_proof.sh`가 서로 다른 Pod IP에 직접 붙어 Redis pub/sub 기반 실시간 전달을 검증합니다.
 - 상세 가이드:
   - `/Users/junsu/Desktop/2-junsu-community-be/docs/K8S_LOCAL_GUIDE.md`
 

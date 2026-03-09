@@ -160,6 +160,7 @@ PY
 kubectl apply -k "${TMP_DIR}" --namespace "${NAMESPACE}"
 
 kubectl -n "${NAMESPACE}" rollout status deploy/community-db --timeout=240s
+kubectl -n "${NAMESPACE}" rollout status deploy/community-redis --timeout=240s
 kubectl -n "${NAMESPACE}" rollout status deploy/community-be --timeout=240s
 kubectl -n "${NAMESPACE}" rollout status deploy/community-fe --timeout=240s
 kubectl -n "${NAMESPACE}" rollout status deploy/community-nginx --timeout=240s
