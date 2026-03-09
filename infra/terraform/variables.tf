@@ -109,6 +109,36 @@ variable "assign_eip" {
   default     = true
 }
 
+variable "minimal_cost_mode" {
+  description = "기본 apply에서 NAT/ALB/EFS/CloudTrail 같은 상시 과금 리소스를 비활성화할지 여부"
+  type        = bool
+  default     = true
+}
+
+variable "enable_nat_gateway" {
+  description = "Private subnet outbound용 NAT Gateway 생성 여부"
+  type        = bool
+  default     = false
+}
+
+variable "enable_alb" {
+  description = "ALB 생성 여부"
+  type        = bool
+  default     = false
+}
+
+variable "enable_efs" {
+  description = "EFS 생성 여부"
+  type        = bool
+  default     = false
+}
+
+variable "enable_cloudtrail" {
+  description = "CloudTrail 생성 여부"
+  type        = bool
+  default     = false
+}
+
 variable "upload_bucket_name" {
   description = "선택: 업로드용 S3 버킷명 (비우면 자동 생성)"
   type        = string
@@ -207,7 +237,7 @@ variable "ecs_assign_public_ip" {
 variable "ecs_health_check_path" {
   description = "ECS target group health check path"
   type        = string
-  default     = "/"
+  default     = "/healthz/ready"
 }
 
 variable "ecs_path_patterns" {

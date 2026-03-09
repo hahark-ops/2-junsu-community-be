@@ -43,6 +43,18 @@ cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
 - `enable_rds` 기본값은 `false`입니다. RDS가 필요한 경우에만 `true`로 명시하세요.
 - `enable_rds=false`로 운영할 때 ECS/Lambda 경로는 `db_host_override`를 함께 지정해야 합니다.
 - `upload_allowed_origin`은 단일 Origin만 허용하며 `"*"`는 `terraform validate`에서 차단됩니다.
+- `minimal_cost_mode=true`가 기본값이며, NAT/ALB/EFS/CloudTrail은 명시적으로 opt-in 해야 생성됩니다.
+
+원격 backend를 사용할 경우:
+
+```bash
+cp infra/terraform/backend.tf.example infra/terraform/backend.tf
+cp infra/terraform/backend.hcl.example infra/terraform/backend.hcl
+```
+
+- `backend.hcl`에는 실제 S3 bucket/key를 채웁니다.
+- `scripts/infra_apply.sh`, `scripts/infra_plan.sh`, `scripts/infra_destroy.sh`, `scripts/infra_outputs.sh`는 `backend.tf`가 있을 때 `backend.hcl`을 자동 감지합니다.
+- `backend.tf`만 있고 `backend.hcl`이 없으면 로컬 모드(`-backend=false`)로 초기화합니다.
 
 권장:
 - `project_name`
@@ -116,7 +128,16 @@ console.log(data);
 ```
 
 ## 8) 비용 주의
-RDS/ALB/NAT(없음)/EIP 등은 비용이 발생합니다.
+기본값은 `minimal_cost_mode=true`이며, 이 경우 NAT/ALB/EFS/CloudTrail은 기본 생성되지 않습니다.
+
+비용이 크게 늘어나는 대표 리소스:
+- RDS (`enable_rds=true`)
+- ALB (`enable_alb=true` 또는 `enable_ecs=true`)
+- NAT Gateway (`enable_nat_gateway=true`)
+- EFS (`enable_efs=true`)
+- CloudTrail (`enable_cloudtrail=true`)
+- EIP (`assign_eip=true`)
+
 실습 종료 후 반드시 제거:
 
 ```bash

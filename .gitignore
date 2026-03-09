@@ -44,6 +44,8 @@ deploy.portainer.local.env
 .env.local
 .env.*.local
 infra/terraform/terraform.tfvars
+infra/terraform/backend.tf
+infra/terraform/backend.hcl
 
 # Terraform runtime artifacts
 infra/terraform/*.tfstate

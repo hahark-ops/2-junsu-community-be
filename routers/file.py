@@ -111,18 +111,23 @@ def _request_presigned_url_via_lambda(
     upload_type: str,
     original_filename: str,
     content_type: str,
-) -> Optional[tuple[str, str, str, str]]:
+    size_bytes: int | None = None,
+) -> Optional[tuple[str, str, str, str, int | None]]:
     if not UPLOAD_LAMBDA_API_URL:
         raise HTTPException(status_code=500, detail="UPLOAD_LAMBDA_API_URL 환경변수가 설정되지 않았습니다.")
 
     try:
+        payload = {
+            "type": upload_type,
+            "filename": original_filename,
+            "contentType": content_type,
+        }
+        if size_bytes is not None:
+            payload["sizeBytes"] = int(size_bytes)
+
         presign_resp = requests.post(
             UPLOAD_LAMBDA_API_URL,
-            json={
-                "type": upload_type,
-                "filename": original_filename,
-                "contentType": content_type,
-            },
+            json=payload,
             headers=_lambda_internal_headers(),
             timeout=15,
         )
@@ -153,6 +158,7 @@ def _request_presigned_url_via_lambda(
     )
     object_key = data.get("objectKey") or body.get("objectKey")
     filename = data.get("filename") or body.get("filename") or ""
+    content_length = data.get("contentLength") or body.get("contentLength")
 
     if upload_url:
         if not object_key and file_url:
@@ -162,7 +168,13 @@ def _request_presigned_url_via_lambda(
         if not file_url:
             raise HTTPException(status_code=500, detail="업로드 URL 생성 결과가 올바르지 않습니다.")
 
-        return upload_url, file_url, object_key or urlparse(file_url).path.lstrip("/"), filename
+        return (
+            upload_url,
+            file_url,
+            object_key or urlparse(file_url).path.lstrip("/"),
+            filename,
+            int(content_length) if content_length is not None else None,
+        )
 
     raise HTTPException(status_code=500, detail="업로드 URL 생성 결과가 올바르지 않습니다.")
 
@@ -189,6 +201,7 @@ def _upload_via_lambda_api(upload_type: str, original_filename: str, content: by
         upload_type=upload_type,
         original_filename=original_filename,
         content_type=content_type,
+        size_bytes=len(content),
     )
 
     if presigned:
@@ -263,6 +276,7 @@ class UploadUrlRequest(BaseModel):
     type: str = "post"
     filename: str = "upload.png"
     contentType: str = "image/png"
+    sizeBytes: int = 0
 
 
 @router.post("/upload-url")
@@ -284,20 +298,32 @@ async def create_upload_url(
     if file_extension and file_extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="지원하지 않는 확장자입니다.")
 
+    if payload.sizeBytes <= 0:
+        raise HTTPException(status_code=400, detail="파일 크기 정보가 필요합니다.")
+
+    upload_limit = _get_upload_limit(payload.type)
+    if payload.sizeBytes > upload_limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일 크기가 제한을 초과했습니다. (최대 {_format_limit_mb(upload_limit)})",
+        )
+
     presigned = _request_presigned_url_via_lambda(
         upload_type=payload.type,
         original_filename=filename,
         content_type=content_type,
+        size_bytes=payload.sizeBytes,
     )
     if not presigned:
         raise HTTPException(status_code=500, detail="업로드 URL 발급에 실패했습니다.")
 
-    upload_url, file_url, object_key, saved_filename = presigned
+    upload_url, file_url, object_key, saved_filename, content_length = presigned
     return {
         "uploadUrl": upload_url,
         "fileUrl": file_url,
         "objectKey": object_key,
         "filename": saved_filename or os.path.basename(object_key),
+        "contentLength": content_length,
         "provider": "lambda-presigned",
     }
 

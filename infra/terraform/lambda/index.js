@@ -9,6 +9,13 @@ const ALLOWED_CONTENT_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
+const MAX_UPLOAD_SIZE = Number(process.env.MAX_UPLOAD_SIZE_BYTES || 30 * 1024 * 1024);
+const MAX_PROFILE_UPLOAD_SIZE = Number(
+  process.env.MAX_PROFILE_UPLOAD_SIZE_BYTES || MAX_UPLOAD_SIZE
+);
+const MAX_POST_UPLOAD_SIZE = Number(
+  process.env.MAX_POST_UPLOAD_SIZE_BYTES || 30 * 1024 * 1024
+);
 
 const UPLOAD_BUCKET = process.env.UPLOAD_BUCKET;
 const AWS_REGION =
@@ -95,6 +102,16 @@ function normalizeUploadType(value) {
   return ALLOWED_TYPES.has(v) ? v : "post";
 }
 
+function getUploadLimit(uploadType) {
+  if (uploadType === "profile") return MAX_PROFILE_UPLOAD_SIZE;
+  if (uploadType === "post") return MAX_POST_UPLOAD_SIZE;
+  return MAX_UPLOAD_SIZE;
+}
+
+function formatLimitMb(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 function getExtension(filename) {
   const lower = String(filename || "").toLowerCase();
   if (lower.endsWith(".jpg")) return ".jpg";
@@ -136,13 +153,14 @@ function buildFileUrl(objectKey) {
   return `https://${UPLOAD_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${objectKey}`;
 }
 
-async function generatePresignedPutUrl(objectKey, contentType) {
+async function generatePresignedPutUrl(objectKey, contentType, contentLength) {
   return getSignedUrl(
     s3,
     new PutObjectCommand({
       Bucket: UPLOAD_BUCKET,
       Key: objectKey,
       ContentType: contentType,
+      ContentLength: contentLength,
     }),
     { expiresIn: 300 }
   );
@@ -188,6 +206,7 @@ exports.handler = async (event) => {
       const uploadType = normalizeUploadType(body.type || "post");
       const requestFilename = body.filename || "upload.png";
       const requestContentType = String(body.contentType || "image/png").toLowerCase();
+      const requestSize = Number(body.sizeBytes || 0);
 
       if (!ALLOWED_CONTENT_TYPES.has(requestContentType)) {
         return response(400, {
@@ -197,9 +216,30 @@ exports.handler = async (event) => {
         });
       }
 
+      if (!Number.isFinite(requestSize) || requestSize <= 0) {
+        return response(400, {
+          code: "INVALID_FILE_SIZE",
+          message: "파일 크기 정보가 필요합니다.",
+          data: null,
+        });
+      }
+
+      const uploadLimit = getUploadLimit(uploadType);
+      if (requestSize > uploadLimit) {
+        return response(413, {
+          code: "FILE_TOO_LARGE",
+          message: `파일 크기가 제한을 초과했습니다. (최대 ${formatLimitMb(uploadLimit)})`,
+          data: null,
+        });
+      }
+
       const { savedFilename, objectKey } = buildObjectKey(uploadType, requestFilename);
       const fileUrl = buildFileUrl(objectKey);
-      const uploadUrl = await generatePresignedPutUrl(objectKey, requestContentType);
+      const uploadUrl = await generatePresignedPutUrl(
+        objectKey,
+        requestContentType,
+        requestSize
+      );
 
       return response(200, {
         code: "PRESIGNED_URL_CREATED",
@@ -209,6 +249,7 @@ exports.handler = async (event) => {
           fileUrl,
           objectKey,
           filename: savedFilename,
+          contentLength: requestSize,
           provider: "lambda-presigned",
         },
       });
@@ -259,6 +300,16 @@ exports.handler = async (event) => {
     const uploadType = normalizeUploadType(
       typePart ? typePart.data.toString("utf8").trim() : "post"
     );
+    const uploadLimit = getUploadLimit(uploadType);
+
+    if (filePart.data.length > uploadLimit) {
+      return response(413, {
+        code: "FILE_TOO_LARGE",
+        message: `파일 크기가 제한을 초과했습니다. (최대 ${formatLimitMb(uploadLimit)})`,
+        data: null,
+      });
+    }
+
     const { savedFilename, objectKey } = buildObjectKey(uploadType, filePart.filename);
 
     await s3.send(

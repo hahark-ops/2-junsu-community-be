@@ -3,7 +3,7 @@ output "vpc_id" {
 }
 
 output "alb_dns_name" {
-  value = aws_lb.app.dns_name
+  value = try(aws_lb.app[0].dns_name, null)
 }
 
 output "fe_public_ip" {
@@ -43,11 +43,11 @@ output "analytics_api_route_url" {
 }
 
 output "cloudtrail_bucket_name" {
-  value = aws_s3_bucket.cloudtrail.id
+  value = try(aws_s3_bucket.cloudtrail[0].id, null)
 }
 
 output "efs_id" {
-  value = aws_efs_file_system.shared.id
+  value = try(aws_efs_file_system.shared[0].id, null)
 }
 
 output "athena_workgroup_name" {

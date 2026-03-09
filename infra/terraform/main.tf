@@ -44,6 +44,11 @@ locals {
   )
   db_port = var.enable_rds ? local.rds_port : "3306"
 
+  enable_nat_gateway = var.enable_nat_gateway || !var.minimal_cost_mode
+  enable_alb         = var.enable_ecs || var.enable_alb || !var.minimal_cost_mode
+  enable_efs         = var.enable_efs || !var.minimal_cost_mode
+  enable_cloudtrail  = var.enable_cloudtrail || !var.minimal_cost_mode
+
   common_tags = {
     Project     = var.project_name
     Environment = var.environment
@@ -122,6 +127,7 @@ resource "aws_route_table_association" "public" {
 
 # Lambda in private subnets needs outbound internet to call public API Gateway endpoints.
 resource "aws_eip" "nat" {
+  count  = local.enable_nat_gateway ? 1 : 0
   domain = "vpc"
 
   tags = merge(local.common_tags, {
@@ -130,7 +136,8 @@ resource "aws_eip" "nat" {
 }
 
 resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
+  count         = local.enable_nat_gateway ? 1 : 0
+  allocation_id = aws_eip.nat[0].id
   subnet_id     = aws_subnet.public[0].id
 
   depends_on = [aws_internet_gateway.main]
@@ -143,9 +150,12 @@ resource "aws_nat_gateway" "main" {
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+  dynamic "route" {
+    for_each = local.enable_nat_gateway ? [1] : []
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = aws_nat_gateway.main[0].id
+    }
   }
 
   tags = merge(local.common_tags, {
@@ -164,6 +174,8 @@ resource "aws_route_table_association" "private" {
 # Security Groups
 # -----------------------------
 resource "aws_security_group" "alb" {
+  count = local.enable_alb ? 1 : 0
+
   name_prefix = "${local.name_prefix}-alb-"
   description = "ALB SG"
   vpc_id      = aws_vpc.main.id
@@ -191,12 +203,26 @@ resource "aws_security_group" "fe" {
   description = "FE EC2 SG"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description     = "FE app from ALB"
-    from_port       = 3000
-    to_port         = 3000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+  dynamic "ingress" {
+    for_each = local.enable_alb ? [1] : []
+    content {
+      description     = "FE app from ALB"
+      from_port       = 3000
+      to_port         = 3000
+      protocol        = "tcp"
+      security_groups = [aws_security_group.alb[0].id]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = local.enable_alb ? [] : [1]
+    content {
+      description = "FE app direct"
+      from_port   = 3000
+      to_port     = 3000
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   ingress {
@@ -222,12 +248,15 @@ resource "aws_security_group" "be" {
   description = "BE EC2 SG"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description     = "BE api from ALB"
-    from_port       = 8000
-    to_port         = 8000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+  dynamic "ingress" {
+    for_each = local.enable_alb ? [1] : []
+    content {
+      description     = "BE api from ALB"
+      from_port       = 8000
+      to_port         = 8000
+      protocol        = "tcp"
+      security_groups = [aws_security_group.alb[0].id]
+    }
   }
 
   ingress {
@@ -257,7 +286,7 @@ resource "aws_security_group" "be" {
 }
 
 resource "aws_security_group" "ecs_tasks" {
-  count = var.enable_ecs ? 1 : 0
+  count = var.enable_ecs && local.enable_alb ? 1 : 0
 
   name_prefix = "${local.name_prefix}-ecs-"
   description = "ECS task SG"
@@ -268,7 +297,7 @@ resource "aws_security_group" "ecs_tasks" {
     from_port       = var.ecs_container_port
     to_port         = var.ecs_container_port
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    security_groups = [aws_security_group.alb[0].id]
   }
 
   egress {
@@ -319,6 +348,8 @@ resource "aws_security_group_rule" "rds_from_ecs" {
 }
 
 resource "aws_security_group" "efs" {
+  count = local.enable_efs ? 1 : 0
+
   name_prefix = "${local.name_prefix}-efs-"
   description = "EFS SG"
   vpc_id      = aws_vpc.main.id
@@ -376,6 +407,26 @@ resource "aws_iam_role_policy_attachment" "ec2_cwagent" {
 resource "aws_iam_role_policy_attachment" "ec2_ecr_readonly" {
   role       = aws_iam_role.ec2.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_iam_role_policy" "ec2_parameter_store_read" {
+  name_prefix = "${local.name_prefix}-ec2-ssm-param-"
+  role        = aws_iam_role.ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParameterHistory"
+        ],
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/community/*"
+      }
+    ]
+  })
 }
 
 resource "aws_iam_instance_profile" "ec2" {
@@ -676,7 +727,7 @@ resource "aws_instance" "be" {
     be_repo_url           = var.be_repo_url
     be_repo_branch        = var.be_repo_branch
     aws_region            = var.aws_region
-    efs_id                = aws_efs_file_system.shared.id
+    efs_id                = local.enable_efs ? aws_efs_file_system.shared[0].id : ""
     upload_internal_token = random_password.upload_internal_token.result
   })
 
@@ -741,10 +792,12 @@ resource "aws_eip_association" "be" {
 # ELB (ALB)
 # -----------------------------
 resource "aws_lb" "app" {
+  count = local.enable_alb ? 1 : 0
+
   name               = "${local.name_prefix}-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
+  security_groups    = [aws_security_group.alb[0].id]
   subnets            = aws_subnet.public[*].id
 
   tags = merge(local.common_tags, {
@@ -753,6 +806,8 @@ resource "aws_lb" "app" {
 }
 
 resource "aws_lb_target_group" "fe" {
+  count = local.enable_alb ? 1 : 0
+
   name        = "${local.name_prefix}-fe-tg"
   port        = 3000
   protocol    = "HTTP"
@@ -774,6 +829,8 @@ resource "aws_lb_target_group" "fe" {
 }
 
 resource "aws_lb_target_group" "be" {
+  count = local.enable_alb ? 1 : 0
+
   name        = "${local.name_prefix}-be-tg"
   port        = 8000
   protocol    = "HTTP"
@@ -782,7 +839,7 @@ resource "aws_lb_target_group" "be" {
 
   health_check {
     enabled             = true
-    path                = "/"
+    path                = "/healthz/ready"
     protocol            = "HTTP"
     matcher             = "200-399"
     healthy_threshold   = 2
@@ -818,37 +875,40 @@ resource "aws_lb_target_group" "ecs_be" {
 }
 
 resource "aws_lb_target_group_attachment" "fe" {
-  target_group_arn = aws_lb_target_group.fe.arn
+  count            = local.enable_alb ? 1 : 0
+  target_group_arn = aws_lb_target_group.fe[0].arn
   target_id        = aws_instance.fe.id
   port             = 3000
 }
 
 resource "aws_lb_target_group_attachment" "be" {
-  target_group_arn = aws_lb_target_group.be.arn
+  count            = local.enable_alb ? 1 : 0
+  target_group_arn = aws_lb_target_group.be[0].arn
   target_id        = aws_instance.be.id
   port             = 8000
 }
 
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.app.arn
+  count             = local.enable_alb ? 1 : 0
+  load_balancer_arn = aws_lb.app[0].arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.fe.arn
+    target_group_arn = aws_lb_target_group.fe[0].arn
   }
 }
 
 resource "aws_lb_listener_rule" "be_api" {
-  count = var.enable_alb_be_api_rule ? 1 : 0
+  count = local.enable_alb ? 1 : 0
 
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.http[0].arn
   priority     = 10
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.be.arn
+    target_group_arn = aws_lb_target_group.be[0].arn
   }
 
   condition {
@@ -861,7 +921,7 @@ resource "aws_lb_listener_rule" "be_api" {
 resource "aws_lb_listener_rule" "ecs_api" {
   count = var.enable_ecs ? 1 : 0
 
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.http[0].arn
   priority     = 20
 
   action {
@@ -920,6 +980,8 @@ resource "aws_db_instance" "main" {
 # EFS
 # -----------------------------
 resource "aws_efs_file_system" "shared" {
+  count = local.enable_efs ? 1 : 0
+
   creation_token = "${local.name_prefix}-efs"
   encrypted      = true
 
@@ -933,11 +995,11 @@ resource "aws_efs_file_system" "shared" {
 }
 
 resource "aws_efs_mount_target" "private" {
-  count = 2
+  count = local.enable_efs ? 2 : 0
 
-  file_system_id  = aws_efs_file_system.shared.id
+  file_system_id  = aws_efs_file_system.shared[0].id
   subnet_id       = aws_subnet.private[count.index].id
-  security_groups = [aws_security_group.efs.id]
+  security_groups = [aws_security_group.efs[0].id]
 }
 
 # -----------------------------
@@ -1068,9 +1130,12 @@ resource "aws_lambda_function" "upload_handler" {
 
   environment {
     variables = {
-      UPLOAD_BUCKET         = aws_s3_bucket.uploads.id
-      UPLOAD_INTERNAL_TOKEN = random_password.upload_internal_token.result
-      ALLOWED_ORIGIN        = var.upload_allowed_origin
+      UPLOAD_BUCKET                 = aws_s3_bucket.uploads.id
+      UPLOAD_INTERNAL_TOKEN         = random_password.upload_internal_token.result
+      ALLOWED_ORIGIN                = var.upload_allowed_origin
+      MAX_UPLOAD_SIZE_BYTES         = "31457280"
+      MAX_PROFILE_UPLOAD_SIZE_BYTES = "26214400"
+      MAX_POST_UPLOAD_SIZE_BYTES    = "31457280"
     }
   }
 
@@ -1209,6 +1274,7 @@ resource "aws_lambda_permission" "apigw_invoke_analytics" {
 # CloudTrail
 # -----------------------------
 resource "aws_s3_bucket" "cloudtrail" {
+  count  = local.enable_cloudtrail ? 1 : 0
   bucket = local.trail_bucket_name
 
   tags = merge(local.common_tags, {
@@ -1217,14 +1283,16 @@ resource "aws_s3_bucket" "cloudtrail" {
 }
 
 resource "aws_s3_bucket_versioning" "cloudtrail" {
-  bucket = aws_s3_bucket.cloudtrail.id
+  count  = local.enable_cloudtrail ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
   versioning_configuration {
     status = "Enabled"
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "cloudtrail" {
-  bucket = aws_s3_bucket.cloudtrail.id
+  count  = local.enable_cloudtrail ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -1233,6 +1301,8 @@ resource "aws_s3_bucket_public_access_block" "cloudtrail" {
 }
 
 data "aws_iam_policy_document" "cloudtrail_bucket" {
+  count = local.enable_cloudtrail ? 1 : 0
+
   statement {
     sid    = "AWSCloudTrailAclCheck"
     effect = "Allow"
@@ -1243,7 +1313,7 @@ data "aws_iam_policy_document" "cloudtrail_bucket" {
     }
 
     actions   = ["s3:GetBucketAcl"]
-    resources = [aws_s3_bucket.cloudtrail.arn]
+    resources = [aws_s3_bucket.cloudtrail[0].arn]
   }
 
   statement {
@@ -1257,7 +1327,7 @@ data "aws_iam_policy_document" "cloudtrail_bucket" {
 
     actions = ["s3:PutObject"]
     resources = [
-      "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+      "${aws_s3_bucket.cloudtrail[0].arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
     ]
 
     condition {
@@ -1269,13 +1339,15 @@ data "aws_iam_policy_document" "cloudtrail_bucket" {
 }
 
 resource "aws_s3_bucket_policy" "cloudtrail" {
-  bucket = aws_s3_bucket.cloudtrail.id
-  policy = data.aws_iam_policy_document.cloudtrail_bucket.json
+  count  = local.enable_cloudtrail ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+  policy = data.aws_iam_policy_document.cloudtrail_bucket[0].json
 }
 
 resource "aws_cloudtrail" "main" {
+  count                         = local.enable_cloudtrail ? 1 : 0
   name                          = "${local.name_prefix}-trail"
-  s3_bucket_name                = aws_s3_bucket.cloudtrail.id
+  s3_bucket_name                = aws_s3_bucket.cloudtrail[0].id
   include_global_service_events = true
   is_multi_region_trail         = true
   enable_logging                = true

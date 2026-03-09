@@ -1,0 +1,10 @@
+# 복사 예시:
+#   cp backend.tf.example backend.tf
+#   cp backend.hcl.example backend.hcl
+#   terraform init -reconfigure -backend-config=backend.hcl
+
+bucket         = "community-terraform-state-123456789012-apne2"
+key            = "community/dev/terraform.tfstate"
+region         = "ap-northeast-2"
+encrypt        = true
+use_lockfile   = true

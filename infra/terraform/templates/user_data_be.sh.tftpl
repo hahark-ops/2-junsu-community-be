@@ -2,17 +2,23 @@
 set -euxo pipefail
 
 dnf update -y
-dnf install -y git docker amazon-efs-utils
+PACKAGES=(git docker docker-compose-plugin)
+if [ -n "${efs_id}" ]; then
+  PACKAGES+=(amazon-efs-utils)
+fi
+dnf install -y "$${PACKAGES[@]}"
 systemctl enable docker
 systemctl start docker
 
 usermod -aG docker ec2-user || true
 
-mkdir -p /mnt/community-efs
-if ! grep -q "${efs_id}" /etc/fstab; then
-  echo "${efs_id}:/ /mnt/community-efs efs _netdev,tls 0 0" >> /etc/fstab
+if [ -n "${efs_id}" ]; then
+  mkdir -p /mnt/community-efs
+  if ! grep -q "${efs_id}" /etc/fstab; then
+    echo "${efs_id}:/ /mnt/community-efs efs _netdev,tls 0 0" >> /etc/fstab
+  fi
+  mount -a -t efs defaults || true
 fi
-mount -a -t efs defaults || true
 
 mkdir -p /opt/community-be
 cd /opt

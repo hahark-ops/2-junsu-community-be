@@ -44,14 +44,16 @@
   1. OIDC 인증
   2. ECR 로그인
   3. 배포 시크릿 precheck(`DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`) fail-fast
-  4. BE/FE/DB 이미지 빌드 및 푸시
-  5. SSM 원격 명령으로 `deploy.proxy.env` 이미지 태그 갱신
-  6. `/opt/2-junsu-community-be/scripts/ensure_deploy_proxy_env.sh`를 `MODE=deploy`로 실행(placeholder 차단)
-  7. `/opt/2-junsu-community-be/scripts/proxy_up_single_ec2.sh` 실행
-  8. EC2 내부 smoke (`qa_ec2_smoke.sh`) 실행
-  9. 성공 태그를 SSM Parameter에 저장
-  10. 실패 시 이전 성공 태그로 자동 롤백
-  11. `concurrency`로 동일 브랜치 중복 배포 방지
+  4. GitHub Secrets를 AWS SSM Parameter Store `SecureString`으로 업서트
+  5. FE는 `ci` 아티팩트에 기록된 커밋 SHA를 checkout하고, 수동 실행만 `fe_ref`를 사용
+  6. BE/FE/DB 이미지 빌드 및 푸시
+  7. SSM 원격 명령으로 `deploy.proxy.env` 이미지 태그 갱신
+  8. `/opt/2-junsu-community-be/scripts/ensure_deploy_proxy_env.sh`를 `MODE=deploy`로 실행(placeholder 차단)
+  9. `/opt/2-junsu-community-be/scripts/proxy_up_single_ec2.sh` 실행
+  10. EC2 내부 smoke (`qa_ec2_smoke.sh`) 실행
+  11. 마지막 성공 `tag + source_sha`를 SSM Parameter에 저장
+  12. 실패 시 이전 성공 `tag + source_sha`로 자동 롤백
+  13. `concurrency`로 동일 브랜치 중복 배포 방지
 
 ## 3.3 `deploy-ecs.yml`
 
@@ -133,7 +135,7 @@
 
 ## 7. 롤백 정책
 
-- EC2: SSM Parameter의 이전 태그로 env 갱신 후 재배포
+- EC2: SSM Parameter의 이전 `tag + source_sha`로 env 갱신 후 재배포
 - ECS: 이전 task definition으로 service 재배포
 - Lambda: alias를 이전 function version으로 되돌림
 

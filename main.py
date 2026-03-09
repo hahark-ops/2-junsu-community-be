@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from database import is_db_ready
 from routers.index import router as api_router
 from utils import APIException
 
@@ -84,4 +85,19 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 @app.get("/")
 async def root():
+    if not is_db_ready():
+        return JSONResponse(
+            status_code=503,
+            content={"message": "Community Server is Running, but database is unavailable."},
+        )
     return {"message": "Community Server is Running!"}
+
+
+@app.get("/healthz/ready")
+async def readiness():
+    if not is_db_ready():
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unready", "database": "unavailable"},
+        )
+    return {"status": "ready", "database": "ok"}

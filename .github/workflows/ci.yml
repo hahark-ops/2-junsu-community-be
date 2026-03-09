@@ -40,13 +40,37 @@ jobs:
       - name: Checkout BE
         uses: actions/checkout@v4
 
+      - name: Resolve FE ref
+        id: fe_ref
+        run: |
+          set -euo pipefail
+          FE_REF="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            FE_REF="${GITHUB_HEAD_REF}"
+          fi
+          echo "fe_ref=${FE_REF}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout FE
         uses: actions/checkout@v4
         with:
           repository: ${{ env.FE_REPO }}
-          ref: main
+          ref: ${{ steps.fe_ref.outputs.fe_ref }}
           path: fe-repo
           token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
+
+      - name: Record FE source metadata
+        run: |
+          set -euo pipefail
+          git -C fe-repo rev-parse HEAD > fe-source-sha.txt
+          printf '%s\n' '${{ steps.fe_ref.outputs.fe_ref }}' > fe-source-ref.txt
+
+      - name: Upload CI metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-metadata
+          path: |
+            fe-source-sha.txt
+            fe-source-ref.txt
 
       - name: Validate local compose config
         env:
@@ -65,11 +89,21 @@ jobs:
       - name: Checkout BE
         uses: actions/checkout@v4
 
+      - name: Resolve FE ref
+        id: fe_ref
+        run: |
+          set -euo pipefail
+          FE_REF="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            FE_REF="${GITHUB_HEAD_REF}"
+          fi
+          echo "fe_ref=${FE_REF}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout FE
         uses: actions/checkout@v4
         with:
           repository: ${{ env.FE_REPO }}
-          ref: main
+          ref: ${{ steps.fe_ref.outputs.fe_ref }}
           path: fe-repo
           token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
 

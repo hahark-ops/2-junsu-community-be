@@ -102,9 +102,6 @@ async def auth_signup(user_data: dict):
     if not validate_nickname_length(user_data["nickname"]):
         raise APIException(code="NICKNAME_TOO_LONG", message="닉네임은 최대 10자까지만 가능합니다.", status_code=400)
 
-    # Legacy soft-deleted 계정 정리: 재가입 시 email/nickname 재사용 가능하도록 처리
-    auth_model.purge_deleted_users_for_signup(user_data["email"], user_data["nickname"])
-
     if auth_model.count_users_by_email(user_data["email"]) > 0:
         raise APIException(code="ALREADY_EXIST_EMAIL", message="이미 가입된 이메일입니다.", status_code=409)
     if auth_model.count_users_by_nickname(user_data["nickname"]) > 0:
@@ -141,9 +138,6 @@ async def auth_login(response: Response, login_data: dict):
 
     if not verify_password(login_data["password"], user.get("password")):
         raise APIException(code="LOGIN_FAILED", message="이메일 또는 비밀번호가 일치하지 않습니다.", status_code=400)
-
-    if user.get("is_deleted"):
-        raise APIException(code="LOGIN_FAILED", message="탈퇴한 회원입니다.", status_code=403)
 
     session_id = str(uuid.uuid4())
     auth_model.create_session(session_id=session_id, user_email=user["email"])

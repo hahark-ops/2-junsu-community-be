@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${1:-${ROOT_DIR}/deploy.env}"
 ECR_LOGIN="${ECR_LOGIN:-false}"
+COMPOSE_OVERRIDE_FILE="${COMPOSE_OVERRIDE_FILE:-}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "배포 env 파일이 없습니다: ${ENV_FILE}"
@@ -50,9 +51,23 @@ else
   exit 1
 fi
 
+COMPOSE_FILES=("docker-compose.deploy.yml")
+if [[ -n "${COMPOSE_OVERRIDE_FILE}" ]]; then
+  if [[ ! -f "${COMPOSE_OVERRIDE_FILE}" ]]; then
+    echo "추가 compose override 파일이 없습니다: ${COMPOSE_OVERRIDE_FILE}"
+    exit 1
+  fi
+  COMPOSE_FILES+=("${COMPOSE_OVERRIDE_FILE}")
+fi
+
+compose_file_args=()
+for compose_file in "${COMPOSE_FILES[@]}"; do
+  compose_file_args+=(-f "${compose_file}")
+done
+
 compose_cmd() {
   if "${COMPOSE_BIN[@]}" --help 2>/dev/null | grep -q -- '--env-file'; then
-    "${COMPOSE_BIN[@]}" --env-file "${ENV_FILE}" -f docker-compose.deploy.yml "$@"
+    "${COMPOSE_BIN[@]}" --env-file "${ENV_FILE}" "${compose_file_args[@]}" "$@"
     return
   fi
 
@@ -61,7 +76,7 @@ compose_cmd() {
     # shellcheck disable=SC1090
     source "${ENV_FILE}"
     set +a
-    "${COMPOSE_BIN[@]}" -f docker-compose.deploy.yml "$@"
+    "${COMPOSE_BIN[@]}" "${compose_file_args[@]}" "$@"
   )
 }
 

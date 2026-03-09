@@ -3,37 +3,16 @@ from models.common import get_cursor
 
 def count_users_by_email(email: str) -> int:
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT count(*) as count FROM users WHERE email = %s AND is_deleted = 0", (email,))
+        cursor.execute("SELECT count(*) as count FROM users WHERE email = %s", (email,))
         row = cursor.fetchone() or {"count": 0}
         return int(row["count"])
 
 
 def count_users_by_nickname(nickname: str) -> int:
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT count(*) as count FROM users WHERE nickname = %s AND is_deleted = 0", (nickname,))
+        cursor.execute("SELECT count(*) as count FROM users WHERE nickname = %s", (nickname,))
         row = cursor.fetchone() or {"count": 0}
         return int(row["count"])
-
-
-def purge_deleted_users_for_signup(email: str, nickname: str):
-    with get_cursor(dictionary=False) as (conn, cursor):
-        try:
-            cursor.execute(
-                "SELECT userId FROM users WHERE is_deleted = 1 AND (email = %s OR nickname = %s)",
-                (email, nickname),
-            )
-            rows = cursor.fetchall()
-            user_ids = [row[0] for row in rows]
-            if user_ids:
-                placeholders = ", ".join(["%s"] * len(user_ids))
-                cursor.execute(
-                    f"DELETE FROM users WHERE is_deleted = 1 AND userId IN ({placeholders})",
-                    tuple(user_ids),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
 
 
 def create_user(email: str, password_hash: str, nickname: str, profile_image: str | None):
@@ -49,7 +28,7 @@ def create_user(email: str, password_hash: str, nickname: str, profile_image: st
 
 def get_user_by_email(email: str):
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+        cursor.execute("SELECT * FROM users WHERE email = %s AND is_deleted = 0", (email,))
         return cursor.fetchone()
 
 

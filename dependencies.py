@@ -25,6 +25,14 @@ async def get_current_user(request: Request):
         
     user = user_model.get_user_by_email(user_email)
     if not user:
-        raise APIException(code="USER_NOT_FOUND", message="사용자를 찾을 수 없습니다.", status_code=401)
+        try:
+            auth_model.delete_session(session_id)
+        except Exception:
+            pass
+        raise APIException(
+            code="LOGIN_REQUIRED",
+            message="유효하지 않은 세션입니다. 다시 로그인해주세요.",
+            status_code=401,
+        )
         
     return user

@@ -9,20 +9,20 @@ ALLOWED_USER_UPDATE_FIELDS = {
 
 def get_user_by_id(user_id: int):
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT * FROM users WHERE userId = %s", (user_id,))
+        cursor.execute("SELECT * FROM users WHERE userId = %s AND is_deleted = 0", (user_id,))
         return cursor.fetchone()
 
 
 def get_user_by_email(email: str):
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+        cursor.execute("SELECT * FROM users WHERE email = %s AND is_deleted = 0", (email,))
         return cursor.fetchone()
 
 
 def count_users_by_nickname_excluding_user(nickname: str, user_id: int) -> int:
     with get_cursor() as (_, cursor):
         cursor.execute(
-            "SELECT count(*) as count FROM users WHERE nickname = %s AND userId != %s AND is_deleted = 0",
+            "SELECT count(*) as count FROM users WHERE nickname = %s AND userId != %s",
             (nickname, user_id),
         )
         row = cursor.fetchone() or {"count": 0}
@@ -94,11 +94,11 @@ def update_user_password(user_id: int, password_hash: str):
     update_user_fields(user_id, {"password": password_hash})
 
 
-def hard_delete_user(user_id: int):
+def soft_delete_user(user_id: int, user_email: str):
     with get_cursor(dictionary=False) as (conn, cursor):
         try:
-            # users 삭제 시 FK ON DELETE CASCADE로 sessions/posts/comments/likes 연쇄 삭제
-            cursor.execute("DELETE FROM users WHERE userId = %s", (user_id,))
+            cursor.execute("UPDATE users SET is_deleted = 1 WHERE userId = %s", (user_id,))
+            cursor.execute("DELETE FROM sessions WHERE userEmail = %s", (user_email,))
             conn.commit()
         except Exception:
             conn.rollback()

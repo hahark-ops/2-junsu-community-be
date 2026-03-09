@@ -7,12 +7,28 @@ TFVARS_FILE="${1:-terraform.tfvars}"
 
 cd "${TF_DIR}"
 
+terraform_init() {
+  local init_args=()
+
+  if [[ -f backend.tf ]]; then
+    if [[ -f backend.hcl ]]; then
+      echo "remote backend 초기화: backend.hcl"
+      init_args=(-reconfigure -backend-config=backend.hcl)
+    else
+      echo "backend.tf는 있지만 backend.hcl이 없습니다. 로컬 모드(-backend=false)로 초기화합니다."
+      init_args=(-backend=false)
+    fi
+  fi
+
+  terraform init "${init_args[@]}"
+}
+
 if [[ ! -f "${TFVARS_FILE}" ]]; then
   echo "tfvars 파일이 없습니다: ${TF_DIR}/${TFVARS_FILE}"
   exit 1
 fi
 
-terraform init
+terraform_init
 terraform destroy -var-file="${TFVARS_FILE}" -auto-approve
 
 echo

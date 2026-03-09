@@ -1,6 +1,6 @@
 # 시스템 아키텍처 설계도 (노션 붙여넣기용)
 
-최종 업데이트: 2026-03-03 (KST)
+최종 업데이트: 2026-03-09 (KST)
 
 ## As-Is (현재 운영)
 
@@ -14,7 +14,7 @@ flowchart TD
     NG["Docker: Nginx<br/>(Reverse Proxy)"]
     FE["Docker: FE"]
     BE["Docker: BE (FastAPI)"]
-    MYSQL[("Docker: MySQL DB<br/>(Host 13306 -> 3306)")]
+    MYSQL[("Docker: MySQL DB<br/>(Internal Docker Network)")]
     EC2 --> NG
     NG --> FE
     NG --> BE
@@ -25,8 +25,9 @@ flowchart TD
     direction TB
     APIGW_BE["API Gateway<br/>(community-dev-be-http-api)"]
     LAMBDA_BE["Lambda: community-dev-be-api"]
+    DB_TARGET[("DB Target<br/>(RDS or db_host_override)")]
     APIGW_BE --> LAMBDA_BE
-    LAMBDA_BE --> MYSQL
+    LAMBDA_BE --> DB_TARGET
     end
 
     subgraph STORAGE_LAYER["Storage Layer"]
@@ -48,10 +49,11 @@ flowchart TD
 
     U -->|"1. 브라우저 접속 (HTTP)"| NG
     NG -->|"2. 일반 API (/v1/*)"| BE
-    U -->|"3. 업로드 URL 요청"| APIGW_UPLOAD
-    U -->|"4. Presigned URL PUT"| S3
-    U -->|"5. BE Lambda 검증 경로"| APIGW_BE
-    U -->|"6. 분석 API"| APIGW_ANALYTICS
+    U -->|"3. 업로드 URL 요청"| BE
+    BE -->|"4. 내부 호출 (X-Upload-Internal-Token)"| APIGW_UPLOAD
+    U -->|"5. Presigned URL PUT"| S3
+    U -->|"6. BE Lambda 검증 경로"| APIGW_BE
+    U -->|"7. 분석 API"| APIGW_ANALYTICS
 
     classDef layer fill:#3b3f46,stroke:#8b8f96,color:#ffffff;
     classDef orange fill:#ff9800,stroke:#c77700,color:#ffffff;
@@ -123,6 +125,6 @@ flowchart TD
 
 1. 사용자 요청은 Nginx(현재) 또는 ALB(목표)로 진입한다.
 2. 일반 API는 애플리케이션 컨테이너(FastAPI)로 라우팅된다.
-3. 업로드는 API Gateway -> Lambda로 presigned URL을 발급받아 S3로 직접 업로드한다.
+3. 업로드는 BE(`/v1/files/upload-url`)가 API Gateway -> Lambda로 presigned URL을 발급받고, 브라우저가 그 URL로 S3에 직접 업로드한다.
 4. 분석 API는 API Gateway -> Lambda -> Athena 경로로 처리한다.
-5. BE Lambda 경로는 API Gateway -> Lambda -> EC2 MySQL(13306)로 연결된다.
+5. BE Lambda 경로는 API Gateway -> Lambda -> 별도 DB 대상(RDS 또는 `db_host_override`)으로 연결된다.

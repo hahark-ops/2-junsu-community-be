@@ -43,6 +43,9 @@
   - 자동 배포: `main/develop` push -> `ci` 성공 시 `deploy-ec2` 자동 실행
   - 동일 태그 재배포: `/Users/junsu/Desktop/2-junsu-community-be/scripts/redeploy_same_tag_ec2.sh`
   - CI 게이트: compile/compose 검증 + 로컬 compose 스모크 테스트
+  - FE checkout ref: 자동 배포는 `ci`가 기록한 FE 커밋 SHA를 사용, 수동 실행은 `fe_ref` override 가능
+  - 배포 시크릿: GitHub Actions가 SSM payload에 평문을 싣지 않고 AWS SSM Parameter Store `SecureString`에 저장 후 EC2가 직접 조회
+  - EC2 롤백: 마지막 성공 `tag + source_sha` 기준
   - ECS/Lambda: 과제 증빙용 수동 실행 경로 유지
   - 실패 시 롤백: EC2 태그 롤백 / ECS task definition 롤백 / Lambda alias 롤백
 - 자세한 변수/시크릿/실행 순서:
@@ -71,12 +74,13 @@
 ## ☸️ Kubernetes 로컬 배포 (Docker Desktop)
 
 - 스택 구성: `community-be`, `community-fe`, `community-db`, `community-nginx`
-- 매니페스트: `/Users/junsu/Desktop/2-junsu-community-be/k8s/community-workloads.yaml`
+- 선언식 루트: `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`
 - 배포 스크립트:
   - `./scripts/k8s_up_local.sh`
   - `./scripts/k8s_down_local.sh`
   - `./scripts/k8s_qa_local.sh`
 - 기본 접속:
+  - `./scripts/k8s_up_local.sh`가 `svc/community-nginx -> 127.0.0.1:30080` port-forward를 자동 시작
   - 앱: `http://127.0.0.1:30080`
   - Swagger: `http://127.0.0.1:30080/docs`
 - 상세 가이드:
@@ -87,10 +91,19 @@
 ## 🛡 Terraform 운영 기본값
 
 - `infra/terraform/variables.tf` 기준 기본값
+  - `minimal_cost_mode=true`
   - `enable_rds=false` (최소비용 기본 운영)
   - `enable_ecs=false`
+  - `enable_nat_gateway=false`
+  - `enable_alb=false`
+  - `enable_efs=false`
+  - `enable_cloudtrail=false`
 - `infra/terraform/terraform.tfvars.example`의 `admin_cidr`는 샘플 `/32`로 제공됩니다.
   - `admin_cidr=0.0.0.0/0`는 `terraform validate`에서 차단됩니다.
+- remote backend 예시:
+  - `infra/terraform/backend.tf.example`
+  - `infra/terraform/backend.hcl.example`
+  - `backend.tf`와 `backend.hcl`을 복사하면 `scripts/infra_*.sh`가 `backend.hcl`을 자동 감지합니다.
 - 업로드 보안:
   - Presigned URL 발급은 인증된 BE 경유 `POST /v1/files/upload-url`만 허용
   - 업로드 Lambda는 `X-Upload-Internal-Token` 헤더가 없는 직접 호출을 차단

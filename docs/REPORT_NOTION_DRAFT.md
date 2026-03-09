@@ -1,6 +1,6 @@
 # 커뮤니티 프로젝트 보고서 초안 (노션 제출용)
 
-최종 업데이트: 2026-03-04 (KST)
+최종 업데이트: 2026-03-09 (KST)
 
 ## 0. 문서 목적
 
@@ -16,13 +16,14 @@
   - Nginx + FE + BE + MySQL Docker Compose
 - BE Lambda 경로: 과제 증빙용으로 유지
   - API Gateway(`community-dev-be-http-api`) -> Lambda(`community-dev-be-api`)
-  - Lambda DB 연동: EC2 MySQL(`10.20.27.37:13306`)
+  - Lambda DB 연동: RDS 또는 `db_host_override`로 지정한 DB 대상
 - 파일 업로드:
   - 기본: FE -> BE(`/v1/files/upload-url`, 인증) -> API Gateway -> Lambda -> S3 (Presigned URL)
   - 폴백: BE `/v1/files/upload`
 - 부가 서비스:
   - API Gateway + Lambda(analytics, upload)
-  - CloudWatch/CloudTrail/EFS
+  - CloudWatch (기본)
+  - CloudTrail/EFS/ALB/NAT는 최소비용 기본값에서 비활성
 - 비용 통제 운영:
   - 평시에는 EC2 stop, 검증/배포 시에만 start
 
@@ -36,7 +37,7 @@ flowchart TD
     NG["Docker: Nginx<br/>(Reverse Proxy)"]
     FE["Docker: FE (Node/Static)"]
     BE["Docker: BE (FastAPI)"]
-    MYSQL[("Docker: MySQL<br/>(Host 13306 -> Container 3306)")]
+    MYSQL[("Docker: MySQL<br/>(Internal Docker Network)")]
     EC2 --> NG
     NG --> FE
     NG --> BE
@@ -47,8 +48,9 @@ flowchart TD
     direction TB
     APIGW_BE["API Gateway<br/>(community-dev-be-http-api)"]
     LAMBDA_BE["Lambda: community-dev-be-api"]
+    DB_TARGET[("DB Target<br/>(RDS or db_host_override)")]
     APIGW_BE --> LAMBDA_BE
-    LAMBDA_BE --> MYSQL
+    LAMBDA_BE --> DB_TARGET
     end
 
     subgraph STORAGE_LAYER["Storage Layer"]
@@ -141,7 +143,7 @@ flowchart LR
 4. 분석 호출:
    - FE/운영도구 -> API Gateway(`/v1/analytics/health`) -> Lambda -> Athena
 5. Lambda BE 검증 경로:
-   - API Gateway(`/`) -> Lambda(`community-dev-be-api`) -> EC2 MySQL(13306)
+   - API Gateway(`/`) -> Lambda(`community-dev-be-api`) -> DB target(RDS 또는 `db_host_override`)
 
 ### 1.4 사용 기술 스택
 

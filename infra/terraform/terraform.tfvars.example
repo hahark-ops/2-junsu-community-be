@@ -9,6 +9,11 @@ admin_cidr = "203.0.113.10/32"
 key_pair_name = "your-keypair-name"
 
 # RDS
+minimal_cost_mode = true
+enable_nat_gateway = false
+enable_alb = false
+enable_efs = false
+enable_cloudtrail = false
 enable_rds  = false
 db_name     = "community_db"
 db_username = "community_user"

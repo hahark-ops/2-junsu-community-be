@@ -26,20 +26,58 @@ DB_CONFIG = {
 
 POOL_NAME = os.getenv("DB_POOL_NAME", "community_pool")
 POOL_SIZE = _int_env("DB_POOL_SIZE", 5)
+db_pool = None
+db_pool_init_error = None
 
-try:
-    db_pool = mysql.connector.pooling.MySQLConnectionPool(
+
+def _create_db_pool():
+    return mysql.connector.pooling.MySQLConnectionPool(
         pool_name=POOL_NAME,
         pool_size=POOL_SIZE,
         **DB_CONFIG,
     )
-    print("MySQL connection pool initialized")
-except Exception as e:
-    print(f"MySQL pool initialization failed: {e}")
-    db_pool = None
+
+
+def ensure_db_pool() -> bool:
+    global db_pool, db_pool_init_error
+
+    if db_pool is not None:
+        return True
+
+    try:
+        db_pool = _create_db_pool()
+        db_pool_init_error = None
+        print("MySQL connection pool initialized")
+        return True
+    except Exception as exc:
+        db_pool = None
+        db_pool_init_error = exc
+        print(f"MySQL pool initialization failed: {exc}")
+        return False
+
+
+ensure_db_pool()
 
 
 def get_db_connection():
-    if db_pool:
+    if db_pool or ensure_db_pool():
         return db_pool.get_connection()
     return mysql.connector.connect(**DB_CONFIG)
+
+
+def is_db_ready() -> bool:
+    if not ensure_db_pool():
+        print(f"MySQL readiness check failed: pool unavailable ({db_pool_init_error})")
+        return False
+
+    try:
+        conn = db_pool.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as exc:
+        print(f"MySQL readiness check failed: {exc}")
+        return False

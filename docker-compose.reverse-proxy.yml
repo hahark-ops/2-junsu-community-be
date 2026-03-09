@@ -13,8 +13,6 @@ services:
       TZ: Asia/Seoul
     volumes:
       - db_data:/var/lib/mysql
-    ports:
-      - "${DB_HOST_PORT:-13306}:3306"
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
       interval: 10s

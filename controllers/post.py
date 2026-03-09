@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import mysql.connector
+
 from models import post_model
 from utils import APIException
 
@@ -156,10 +158,12 @@ async def like_post(post_id: int, current_user: dict):
     if not post_model.exists_post(post_id):
         raise APIException(code="POST_NOT_FOUND", message="해당 게시글을 찾을 수 없습니다.", status_code=404)
 
-    if post_model.has_user_liked(post_id, current_user["email"]):
-        raise APIException(code="ALREADY_LIKED", message="이미 좋아요를 누른 게시글입니다.", status_code=409)
-
-    post_model.add_like(post_id, current_user["email"])
+    try:
+        post_model.add_like(post_id, current_user["email"])
+    except mysql.connector.IntegrityError as exc:
+        if getattr(exc, "errno", None) == 1062:
+            raise APIException(code="ALREADY_LIKED", message="이미 좋아요를 누른 게시글입니다.", status_code=409)
+        raise
     like_count = post_model.count_likes(post_id)
     return {
         "code": "LIKE_SUCCESS",

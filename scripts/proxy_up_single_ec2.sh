@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${ROOT_DIR}/docker-compose.reverse-proxy.yml"
+COMPOSE_OVERRIDE_FILE="${COMPOSE_OVERRIDE_FILE:-}"
 ENV_FILE="${1:-${ROOT_DIR}/deploy.proxy.env}"
 HTTP_CONF="${ROOT_DIR}/docker/nginx/conf.d/default.conf"
 
@@ -20,6 +21,15 @@ fi
 
 cd "${ROOT_DIR}"
 
+COMPOSE_FILES=("${COMPOSE_FILE}")
+if [[ -n "${COMPOSE_OVERRIDE_FILE}" ]]; then
+  if [[ ! -f "${COMPOSE_OVERRIDE_FILE}" ]]; then
+    echo "추가 compose override 파일이 없습니다: ${COMPOSE_OVERRIDE_FILE}"
+    exit 1
+  fi
+  COMPOSE_FILES+=("${COMPOSE_OVERRIDE_FILE}")
+fi
+
 # AMI별로 docker compose 플러그인/standalone(docker-compose) 차이를 흡수.
 if docker compose version >/dev/null 2>&1; then
   COMPOSE_BIN=(docker compose)
@@ -30,9 +40,14 @@ else
   exit 1
 fi
 
+compose_file_args=()
+for compose_file in "${COMPOSE_FILES[@]}"; do
+  compose_file_args+=(-f "${compose_file}")
+done
+
 compose_cmd() {
   if "${COMPOSE_BIN[@]}" --help 2>/dev/null | grep -q -- '--env-file'; then
-    "${COMPOSE_BIN[@]}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+    "${COMPOSE_BIN[@]}" --env-file "${ENV_FILE}" "${compose_file_args[@]}" "$@"
     return
   fi
 
@@ -41,7 +56,7 @@ compose_cmd() {
     # shellcheck disable=SC1090
     source "${ENV_FILE}"
     set +a
-    "${COMPOSE_BIN[@]}" -f "${COMPOSE_FILE}" "$@"
+    "${COMPOSE_BIN[@]}" "${compose_file_args[@]}" "$@"
   )
 }
 
