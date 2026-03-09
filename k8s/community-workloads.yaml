@@ -26,6 +26,8 @@ metadata:
   name: community-db
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: community-db
@@ -116,6 +118,8 @@ metadata:
   name: community-be
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: community-be
