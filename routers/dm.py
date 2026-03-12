@@ -10,12 +10,23 @@ from controllers.dm import (
     mark_room_as_read_and_notify,
     publish_message_created,
     require_room_access,
+    serialize_message_for_user,
 )
 from dependencies import get_current_user, resolve_user_by_session_id
+from realtime.redis_bus import RedisBusError, is_redis_ready
 from utils import APIException
 
 router = APIRouter(prefix="/v1/dm")
 ws_router = APIRouter()
+
+
+def _require_realtime_available():
+    if not is_redis_ready():
+        raise APIException(
+            code="REALTIME_UNAVAILABLE",
+            message="실시간 채팅이 일시적으로 사용할 수 없습니다.",
+            status_code=503,
+        )
 
 
 @router.post("/rooms", status_code=status.HTTP_200_OK)
@@ -51,17 +62,56 @@ async def get_room_messages_endpoint(
 @ws_router.websocket("/ws/dm/{room_id}")
 async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
     session_id = websocket.cookies.get("session_id")
+    connected = False
 
     try:
+        _require_realtime_available()
         current_user = resolve_user_by_session_id(session_id)
         require_room_access(room_id, current_user["email"])
         await dm_connection_manager.connect(room_id, websocket, current_user["userId"], current_user["email"])
+        connected = True
         await websocket.send_json({"type": "connected", "roomId": room_id})
-        await mark_room_as_read_and_notify(room_id, current_user)
 
         while True:
             payload = await websocket.receive_json()
-            if payload.get("type") != "send_message":
+            payload_type = payload.get("type")
+            if payload_type == "send_message":
+                _require_realtime_available()
+                message_row, created_new = await create_dm_message(
+                    room_id,
+                    current_user,
+                    payload.get("content"),
+                    payload.get("clientMessageId"),
+                )
+                if created_new:
+                    await publish_message_created(room_id, message_row)
+                else:
+                    if message_row.get("realtimePublishedAt") is None:
+                        await publish_message_created(room_id, message_row)
+                    else:
+                        await websocket.send_json(
+                            {
+                                "type": "message_created",
+                                "data": serialize_message_for_user(message_row, current_user),
+                            }
+                        )
+                continue
+
+            if payload_type == "mark_read":
+                _require_realtime_available()
+                last_read_message_id = payload.get("lastReadMessageId")
+                if last_read_message_id is not None:
+                    try:
+                        last_read_message_id = int(last_read_message_id)
+                    except (TypeError, ValueError):
+                        raise APIException(
+                            code="INVALID_MESSAGE_ID",
+                            message="유효하지 않은 메시지입니다.",
+                            status_code=400,
+                        )
+                await mark_room_as_read_and_notify(room_id, current_user, last_read_message_id)
+                continue
+            if payload_type != "send_message":
                 await websocket.send_json(
                     {
                         "type": "error",
@@ -70,22 +120,34 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
                     }
                 )
                 continue
-
-            message_row = await create_dm_message(room_id, current_user, payload.get("content"))
-            await publish_message_created(room_id, message_row)
+    except RedisBusError:
+        if websocket.application_state == WebSocketState.CONNECTING:
+            await websocket.accept()
+        if websocket.application_state == WebSocketState.CONNECTED:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "REALTIME_UNAVAILABLE",
+                    "message": "실시간 채팅이 일시적으로 사용할 수 없습니다.",
+                }
+            )
+            await websocket.close(code=1013)
     except APIException as exc:
         if websocket.application_state == WebSocketState.CONNECTING:
             await websocket.accept()
-        await websocket.send_json(
-            {
-                "type": "error",
-                "code": exc.code,
-                "message": exc.message,
-            }
-        )
-        await websocket.close(code=4401)
+        if websocket.application_state == WebSocketState.CONNECTED:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": exc.code,
+                    "message": exc.message,
+                }
+            )
+            await websocket.close(code=1013 if exc.status_code >= 500 else 4401)
     except WebSocketDisconnect:
-        await dm_connection_manager.disconnect(room_id, websocket)
+        pass
     except Exception:
-        await dm_connection_manager.disconnect(room_id, websocket)
         raise
+    finally:
+        if connected:
+            await dm_connection_manager.disconnect(room_id, websocket)

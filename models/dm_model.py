@@ -120,7 +120,9 @@ def list_messages(room_id: int, limit: int = 50, before_message_id: int | None =
         SELECT
             m.messageId,
             m.roomId,
+            m.clientMessageId,
             m.content,
+            m.realtimePublishedAt,
             m.createdAt,
             u.userId AS senderUserId,
             u.nickname AS senderNickname,
@@ -155,18 +157,39 @@ def list_messages(room_id: int, limit: int = 50, before_message_id: int | None =
         return rows, has_more, oldest_message_id
 
 
-def create_message(room_id: int, sender_email: str, content: str):
-    insert_sql = "INSERT INTO dm_messages (roomId, senderEmail, content) VALUES (%s, %s, %s)"
+def get_message_by_client_message_id(room_id: int, sender_email: str, client_message_id: str):
+    sql = """
+        SELECT messageId
+        FROM dm_messages
+        WHERE roomId = %s AND senderEmail = %s AND clientMessageId = %s
+        LIMIT 1
+    """
+    with get_cursor() as (_, cursor):
+        cursor.execute(sql, (room_id, sender_email, client_message_id))
+        row = cursor.fetchone()
+        return row["messageId"] if row else None
+
+
+def create_message(room_id: int, sender_email: str, client_message_id: str, content: str):
+    insert_sql = """
+        INSERT INTO dm_messages (roomId, senderEmail, clientMessageId, content)
+        VALUES (%s, %s, %s, %s)
+    """
     update_sql = "UPDATE dm_rooms SET updatedAt = CURRENT_TIMESTAMP WHERE roomId = %s"
     with get_cursor(dictionary=False) as (conn, cursor):
         try:
-            cursor.execute(insert_sql, (room_id, sender_email, content))
+            cursor.execute(insert_sql, (room_id, sender_email, client_message_id, content))
             message_id = cursor.lastrowid
             cursor.execute(update_sql, (room_id,))
             conn.commit()
-            return message_id
-        except Exception:
+            return message_id, True
+        except Exception as exc:
             conn.rollback()
+            errno = getattr(exc, "errno", None)
+            if errno == 1062:
+                existing_message_id = get_message_by_client_message_id(room_id, sender_email, client_message_id)
+                if existing_message_id:
+                    return existing_message_id, False
             raise
 
 
@@ -175,7 +198,9 @@ def get_message_by_id(message_id: int):
         SELECT
             m.messageId,
             m.roomId,
+            m.clientMessageId,
             m.content,
+            m.realtimePublishedAt,
             m.createdAt,
             u.userId AS senderUserId,
             u.nickname AS senderNickname,
@@ -188,6 +213,18 @@ def get_message_by_id(message_id: int):
     with get_cursor() as (_, cursor):
         cursor.execute(sql, (message_id,))
         return cursor.fetchone()
+
+
+def mark_message_realtime_published(message_id: int):
+    sql = """
+        UPDATE dm_messages
+        SET realtimePublishedAt = CURRENT_TIMESTAMP
+        WHERE messageId = %s AND realtimePublishedAt IS NULL
+    """
+    with get_cursor(dictionary=False) as (conn, cursor):
+        cursor.execute(sql, (message_id,))
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def is_room_participant(room_id: int, user_email: str) -> bool:
@@ -223,6 +260,19 @@ def get_partner_last_read_message_id(room_id: int, user_email: str):
         FROM dm_room_reads
         WHERE roomId = %s AND userEmail <> %s
         ORDER BY lastReadAt DESC
+        LIMIT 1
+    """
+    with get_cursor() as (_, cursor):
+        cursor.execute(sql, (room_id, user_email))
+        row = cursor.fetchone()
+        return row["lastReadMessageId"] if row else None
+
+
+def get_user_last_read_message_id(room_id: int, user_email: str):
+    sql = """
+        SELECT lastReadMessageId
+        FROM dm_room_reads
+        WHERE roomId = %s AND userEmail = %s
         LIMIT 1
     """
     with get_cursor() as (_, cursor):

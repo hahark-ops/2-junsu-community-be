@@ -40,7 +40,7 @@
   - `environment` (`dev|prod`)
   - `image_tag` (옵션)
   - `source_sha` (옵션, 수동 불변 재배포용)
-  - `fe_ref` (옵션, 수동 FE ref override)
+  - `fe_ref` (수동 실행 필수)
   - `reuse_existing_images` (옵션, 기본 `false`)
   - `rollback_on_fail` (기본 `true`)
 - 동작:
@@ -48,7 +48,7 @@
   2. ECR 로그인
   3. 배포 시크릿 precheck(`DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`) fail-fast
   4. GitHub Secrets를 AWS SSM Parameter Store `SecureString`으로 업서트
-  5. FE는 `ci` 아티팩트에 기록된 커밋 SHA를 checkout하고, 아티팩트가 없으면 자동배포를 실패 처리한다. 수동 실행은 `fe_ref` 또는 마지막 성공 `fe_sha`를 사용한다.
+  5. FE는 `ci` 아티팩트에 기록된 커밋 SHA를 checkout하고, 아티팩트가 없으면 자동배포를 실패 처리한다. 수동 실행은 `fe_ref`를 반드시 명시한다.
   6. `reuse_existing_images=true`이면 기존 ECR 태그를 그대로 재사용하고, `false`일 때만 BE/FE/DB 이미지를 새로 빌드/푸시
   7. SSM 원격 명령으로 `deploy.proxy.env` 이미지 태그 갱신
   8. `/opt/2-junsu-community-be/scripts/ensure_deploy_proxy_env.sh`를 `MODE=deploy`로 실행(placeholder 차단)

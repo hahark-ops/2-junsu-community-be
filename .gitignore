@@ -87,5 +87,5 @@ uploads/
 local/portainer/
 
 # Kubernetes local secret sources
-k8s/config/db-secrets.env
-k8s/config/app-secrets.env
+k8s/base/config/db-secrets.env
+k8s/base/config/app-secrets.env

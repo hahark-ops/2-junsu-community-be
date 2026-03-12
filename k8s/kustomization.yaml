@@ -1,25 +1,5 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: community-local
 
 resources:
-  - community-workloads.yaml
-
-configMapGenerator:
-  - name: community-app-config
-    envs:
-      - config/app.env
-  - name: community-schema
-    files:
-      - 01-schema.sql=config/01-schema.sql
-  - name: community-nginx-conf
-    files:
-      - default.conf=config/default.conf
-
-secretGenerator:
-  - name: community-db-secret
-    envs:
-      - config/db-secrets.env.example
-  - name: community-app-secret
-    envs:
-      - config/app-secrets.env.example
+  - base

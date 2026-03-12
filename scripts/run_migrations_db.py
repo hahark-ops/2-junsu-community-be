@@ -13,6 +13,8 @@ MIGRATION_FILES = [
     ROOT_DIR / "scripts" / "migrations" / "20260309_ensure_like_unique.sql",
     ROOT_DIR / "scripts" / "migrations" / "20260309_add_dm_tables.sql",
     ROOT_DIR / "scripts" / "migrations" / "20260309_add_dm_room_reads.sql",
+    ROOT_DIR / "scripts" / "migrations" / "20260312_add_dm_client_message_id.sql",
+    ROOT_DIR / "scripts" / "migrations" / "20260312_add_dm_realtime_published.sql",
 ]
 
 

@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from database import is_db_ready
 from controllers.dm import handle_room_event
-from realtime.redis_bus import is_redis_ready, start_room_event_subscriber, stop_room_event_subscriber
+from realtime.redis_bus import get_redis_status_async, is_redis_ready, start_room_event_subscriber, stop_room_event_subscriber
 from routers.index import router as api_router
 from utils import APIException
 
@@ -74,7 +74,10 @@ app.include_router(api_router)
 
 @app.on_event("startup")
 async def startup_event():
-    await start_room_event_subscriber(handle_room_event)
+    try:
+        await start_room_event_subscriber(handle_room_event)
+    except Exception as exc:  # pragma: no cover - runtime infra path
+        logger.warning("Realtime subscriber startup skipped: %s", exc)
 
 
 @app.on_event("shutdown")
@@ -102,12 +105,10 @@ async def root():
             status_code=503,
             content={"message": "Community Server is Running, but database is unavailable."},
         )
-    if not is_redis_ready():
-        return JSONResponse(
-            status_code=503,
-            content={"message": "Community Server is Running, but realtime broker is unavailable."},
-        )
-    return {"message": "Community Server is Running!"}
+    return {
+        "message": "Community Server is Running!",
+        "realtime": "ok" if is_redis_ready() else "unavailable",
+    }
 
 
 @app.get("/healthz/ready")
@@ -117,9 +118,15 @@ async def readiness():
             status_code=503,
             content={"status": "unready", "database": "unavailable"},
         )
-    if not is_redis_ready():
+    return {"status": "ready", "database": "ok"}
+
+
+@app.get("/healthz/realtime")
+async def realtime_health():
+    status_payload = await get_redis_status_async()
+    if not status_payload["ready"]:
         return JSONResponse(
             status_code=503,
-            content={"status": "unready", "database": "ok", "redis": "unavailable"},
+            content={"status": "unready", **status_payload},
         )
-    return {"status": "ready", "database": "ok", "redis": "ok"}
+    return {"status": "ready", **status_payload}

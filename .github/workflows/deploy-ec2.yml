@@ -245,6 +245,10 @@ jobs:
             fi
           else
             FE_REF='${{ steps.resolve.outputs.fe_ref_input }}'
+            if [ -z "${FE_REF}" ]; then
+              echo "workflow_dispatch deploy requires fe_ref."
+              exit 1
+            fi
             if [ "${REUSE}" = "true" ]; then
               if [ "${INPUT_TAG_PROVIDED}" = "true" ] && { [ -z "${SOURCE_SHA}" ] || [ -z "${FE_REF}" ]; }; then
                 echo "When reuse_existing_images=true and image_tag is provided, source_sha and fe_ref must also be provided."
@@ -253,11 +257,6 @@ jobs:
               if [ -z "${SOURCE_SHA}" ] || [ "${SOURCE_SHA}" = "None" ]; then
                 SOURCE_SHA="$(aws ssm get-parameter --name "${{ steps.resolve.outputs.param_sha_name }}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text 2>/dev/null || true)"
               fi
-              if [ -z "${FE_REF}" ]; then
-                FE_REF="$(aws ssm get-parameter --name "${{ steps.resolve.outputs.param_fe_sha_name }}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text 2>/dev/null || true)"
-              fi
-            elif [ -z "${FE_REF}" ]; then
-              FE_REF="$(aws ssm get-parameter --name "${{ steps.resolve.outputs.param_fe_sha_name }}" --region "${AWS_REGION}" --query 'Parameter.Value' --output text 2>/dev/null || true)"
             fi
           fi
 

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 K8S_DIR="${ROOT_DIR}/k8s"
 NAMESPACE="${NAMESPACE:-community-local}"
+K8S_TARGET="${K8S_TARGET:-base}"
 PORT_FORWARD_PORT="${PORT_FORWARD_PORT:-30080}"
 PORT_FORWARD_HOST="${PORT_FORWARD_HOST:-127.0.0.1}"
 PORT_FORWARD_PID_FILE="/tmp/community-k8s-port-forward-${NAMESPACE}-${PORT_FORWARD_PORT}.pid"
@@ -12,10 +13,24 @@ PORT_FORWARD_LOG_FILE="/tmp/community-k8s-port-forward-${NAMESPACE}-${PORT_FORWA
 BE_IMAGE="${BE_IMAGE:-community-be:local}"
 FE_IMAGE="${FE_IMAGE:-community-fe:local}"
 DB_IMAGE="${DB_IMAGE:-community-db:local}"
-DB_SECRET_ENV="${K8S_DIR}/config/db-secrets.env"
-DB_SECRET_ENV_EXAMPLE="${K8S_DIR}/config/db-secrets.env.example"
-APP_SECRET_ENV="${K8S_DIR}/config/app-secrets.env"
-APP_SECRET_ENV_EXAMPLE="${K8S_DIR}/config/app-secrets.env.example"
+DB_SECRET_ENV="${K8S_DIR}/base/config/db-secrets.env"
+DB_SECRET_ENV_EXAMPLE="${K8S_DIR}/base/config/db-secrets.env.example"
+APP_SECRET_ENV="${K8S_DIR}/base/config/app-secrets.env"
+APP_SECRET_ENV_EXAMPLE="${K8S_DIR}/base/config/app-secrets.env.example"
+
+case "${K8S_TARGET}" in
+  base)
+    KUSTOMIZE_PATH="${K8S_DIR}/base"
+    ;;
+  dm-scale-proof)
+    KUSTOMIZE_PATH="${K8S_DIR}/overlays/dm-scale-proof"
+    ;;
+  *)
+    echo "[ERROR] 지원하지 않는 K8S_TARGET입니다: ${K8S_TARGET}"
+    echo "        사용 가능 값: base, dm-scale-proof"
+    exit 1
+    ;;
+esac
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -105,8 +120,8 @@ require_cmd kubectl
 require_cmd docker
 require_cmd curl
 
-if [[ ! -f "${K8S_DIR}/kustomization.yaml" || ! -f "${K8S_DIR}/community-workloads.yaml" ]]; then
-  echo "k8s 매니페스트를 찾을 수 없습니다."
+if [[ ! -d "${KUSTOMIZE_PATH}" ]]; then
+  echo "[ERROR] Kustomize 경로를 찾을 수 없습니다: ${KUSTOMIZE_PATH}"
   exit 1
 fi
 
@@ -124,43 +139,14 @@ ensure_image_exists "${DB_IMAGE}" "community-db:local" "localhost:5001/community
 
 kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${NAMESPACE}"
 
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "${TMP_DIR}"' EXIT
-cp -R "${K8S_DIR}/." "${TMP_DIR}/"
-
-python3 - "$TMP_DIR" "$NAMESPACE" <<'PY'
-from pathlib import Path
-import sys
-
-tmp_dir = Path(sys.argv[1])
-namespace = sys.argv[2]
-kustomization = tmp_dir / "kustomization.yaml"
-lines = kustomization.read_text(encoding="utf-8").splitlines()
-updated = []
-namespace_written = False
-
-for line in lines:
-    if line.startswith("namespace:"):
-        updated.append(f"namespace: {namespace}")
-        namespace_written = True
-    else:
-        updated.append(
-            line.replace("config/db-secrets.env.example", "config/db-secrets.env").replace(
-                "config/app-secrets.env.example", "config/app-secrets.env"
-            )
-        )
-
-if not namespace_written:
-    insert_at = 2 if len(updated) >= 2 else len(updated)
-    updated.insert(insert_at, f"namespace: {namespace}")
-
-kustomization.write_text("\n".join(updated) + "\n", encoding="utf-8")
-PY
-
-kubectl apply -k "${TMP_DIR}" --namespace "${NAMESPACE}"
+kubectl -n "${NAMESPACE}" delete job community-be-migrate --ignore-not-found --wait=true >/dev/null 2>&1 || true
+kubectl apply -k "${KUSTOMIZE_PATH}" --namespace "${NAMESPACE}"
 
 kubectl -n "${NAMESPACE}" rollout status deploy/community-db --timeout=240s
 kubectl -n "${NAMESPACE}" rollout status deploy/community-redis --timeout=240s
+
+kubectl -n "${NAMESPACE}" wait --for=condition=complete job/community-be-migrate --timeout=240s
+
 kubectl -n "${NAMESPACE}" rollout status deploy/community-be --timeout=240s
 kubectl -n "${NAMESPACE}" rollout status deploy/community-fe --timeout=240s
 kubectl -n "${NAMESPACE}" rollout status deploy/community-nginx --timeout=240s
@@ -169,6 +155,7 @@ start_port_forward
 
 echo
 printf '[PASS] Kubernetes 로컬 배포 완료\n'
+printf 'Target    : %s\n' "${K8S_TARGET}"
 printf 'Namespace : %s\n' "${NAMESPACE}"
 printf 'App URL   : http://%s:%s\n' "${PORT_FORWARD_HOST}" "${PORT_FORWARD_PORT}"
 printf 'Docs URL  : http://%s:%s/docs\n' "${PORT_FORWARD_HOST}" "${PORT_FORWARD_PORT}"

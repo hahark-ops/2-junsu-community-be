@@ -306,6 +306,9 @@ flowchart LR
     1. 메시지 저장 성공
     2. 상대 사용자가 어떤 Pod에도 연결되어 있지 않으면 notification/outbox 기록
     3. 이후 웹푸시 또는 모바일푸시로 확장
+  - 운영 정책
+    - DM은 부가 기능으로 취급
+    - Redis 장애 시 `/healthz/realtime`로만 감지하고, 일반 게시글/댓글/인증 readiness는 유지
 
 ## 5. 운영상 한계와 다음 단계
 

@@ -10,6 +10,7 @@ from realtime.redis_bus import publish_room_event
 from utils import APIException
 
 MAX_DM_MESSAGE_LENGTH = 500
+MAX_CLIENT_MESSAGE_ID_LENGTH = 64
 logger = logging.getLogger("community.dm")
 
 
@@ -50,6 +51,7 @@ def serialize_message_row(
     return {
         "messageId": message_id,
         "roomId": row.get("roomId"),
+        "clientMessageId": row.get("clientMessageId"),
         "senderUserId": sender_user_id,
         "senderNickname": row.get("senderNickname"),
         "senderProfileImage": row.get("senderProfileImage"),
@@ -71,6 +73,30 @@ def _validate_message_content(content: str | None) -> str:
         raise APIException(
             code="MESSAGE_TOO_LONG",
             message=f"메시지는 최대 {MAX_DM_MESSAGE_LENGTH}자까지 입력할 수 있습니다.",
+            status_code=400,
+        )
+    return normalized
+
+
+def _validate_client_message_id(client_message_id: str | None) -> str:
+    if client_message_id is None:
+        raise APIException(
+            code="REQUIRED_FIELDS_MISSING",
+            message="메시지 식별자가 필요합니다.",
+            status_code=400,
+        )
+
+    normalized = str(client_message_id).strip()
+    if not normalized:
+        raise APIException(
+            code="REQUIRED_FIELDS_MISSING",
+            message="메시지 식별자가 필요합니다.",
+            status_code=400,
+        )
+    if len(normalized) > MAX_CLIENT_MESSAGE_ID_LENGTH:
+        raise APIException(
+            code="INVALID_MESSAGE_ID",
+            message="유효하지 않은 메시지 식별자입니다.",
             status_code=400,
         )
     return normalized
@@ -133,7 +159,6 @@ async def get_room_messages(room_id: int, current_user: dict, limit: int = 50, b
     require_room_access(room_id, current_user["email"])
     rows, has_more, oldest_message_id = dm_model.list_messages(room_id, limit=limit, before_message_id=before_message_id)
     partner_last_read_message_id = dm_model.get_partner_last_read_message_id(room_id, current_user["email"])
-    await mark_room_as_read_and_notify(room_id, current_user)
     return {
         "code": "GET_DM_MESSAGES_SUCCESS",
         "message": "메시지 목록 조회 성공",
@@ -229,20 +254,53 @@ class DMConnectionManager:
 dm_connection_manager = DMConnectionManager()
 
 
-async def create_dm_message(room_id: int, current_user: dict, content: str) -> dict:
+async def create_dm_message(room_id: int, current_user: dict, content: str, client_message_id: str) -> tuple[dict, bool]:
     require_room_access(room_id, current_user["email"])
     message_content = _validate_message_content(content)
-    message_id = dm_model.create_message(room_id, current_user["email"], message_content)
-    return dm_model.get_message_by_id(message_id)
+    normalized_client_message_id = _validate_client_message_id(client_message_id)
+    message_id, created_new = dm_model.create_message(
+        room_id, current_user["email"], normalized_client_message_id, message_content
+    )
+    return dm_model.get_message_by_id(message_id), created_new
 
 
-async def mark_room_as_read_and_notify(room_id: int, current_user: dict):
-    last_message_id = dm_model.get_room_last_message_id(room_id)
+def serialize_message_for_user(message_row: dict, current_user: dict) -> dict:
+    partner_last_read_message_id = dm_model.get_partner_last_read_message_id(message_row["roomId"], current_user["email"])
+    return serialize_message_row(
+        message_row,
+        current_user["userId"],
+        current_user["email"],
+        partner_last_read_message_id,
+    )
+
+
+async def mark_room_as_read_and_notify(room_id: int, current_user: dict, last_read_message_id: int | None = None):
+    require_room_access(room_id, current_user["email"])
+
+    if last_read_message_id is None:
+        last_message_id = dm_model.get_room_last_message_id(room_id)
+    else:
+        try:
+            last_message_id = int(last_read_message_id)
+        except (TypeError, ValueError):
+            raise APIException(code="INVALID_MESSAGE_ID", message="유효하지 않은 메시지입니다.", status_code=400)
+
+        if last_message_id <= 0:
+            raise APIException(code="INVALID_MESSAGE_ID", message="유효하지 않은 메시지입니다.", status_code=400)
+
+        message_row = dm_model.get_message_by_id(last_message_id)
+        if not message_row or int(message_row["roomId"]) != int(room_id):
+            raise APIException(code="INVALID_MESSAGE_ID", message="유효하지 않은 메시지입니다.", status_code=400)
+
     if not last_message_id:
         return None
 
-    advanced = dm_model.mark_room_as_read(room_id, current_user["email"], last_message_id)
-    if not advanced:
+    current_last_read_message_id = dm_model.get_user_last_read_message_id(room_id, current_user["email"])
+    if current_last_read_message_id is not None and int(current_last_read_message_id) >= int(last_message_id):
+        return None
+
+    updated = dm_model.mark_room_as_read(room_id, current_user["email"], last_message_id)
+    if not updated:
         return None
 
     payload = {
@@ -263,6 +321,7 @@ async def publish_message_created(room_id: int, message_row: dict):
         "data": {
             "messageId": message_row.get("messageId"),
             "roomId": message_row.get("roomId"),
+            "clientMessageId": message_row.get("clientMessageId"),
             "senderUserId": message_row.get("senderUserId"),
             "senderNickname": message_row.get("senderNickname"),
             "senderProfileImage": message_row.get("senderProfileImage"),
@@ -272,6 +331,7 @@ async def publish_message_created(room_id: int, message_row: dict):
         },
     }
     await publish_room_event(room_id, payload)
+    dm_model.mark_message_realtime_published(message_row["messageId"])
 
 
 def _serialize_payload_for_connection(payload: dict, current_connection: dict) -> dict:
@@ -283,40 +343,6 @@ def _serialize_payload_for_connection(payload: dict, current_connection: dict) -
     data["readByOther"] = False
     data.pop("senderEmail", None)
     return {"type": "message_created", "data": data}
-
-
-async def _maybe_mark_local_room_as_read(room_id: int, payload: dict):
-    if payload.get("type") != "message_created":
-        return
-
-    data = payload.get("data") or {}
-    sender_email = data.get("senderEmail")
-    message_id = data.get("messageId")
-    sender_user_id = data.get("senderUserId")
-    if not sender_email or not message_id:
-        return
-
-    connected_users = await dm_connection_manager.list_connected_users(room_id)
-    for connected_user in connected_users:
-        if connected_user["userEmail"] == sender_email:
-            continue
-
-        advanced = dm_model.mark_room_as_read(room_id, connected_user["userEmail"], int(message_id))
-        if not advanced:
-            continue
-
-        await publish_room_event(
-            room_id,
-            {
-                "type": "messages_read",
-                "data": {
-                    "roomId": room_id,
-                    "readerUserId": connected_user["userId"],
-                    "lastReadMessageId": int(message_id),
-                    "senderUserId": sender_user_id,
-                },
-            },
-        )
 
 
 async def handle_room_event(room_id: int, payload: dict):
@@ -334,5 +360,3 @@ async def handle_room_event(room_id: int, payload: dict):
 
     for websocket in stale:
         await dm_connection_manager.disconnect(room_id, websocket)
-
-    await _maybe_mark_local_room_as_read(room_id, payload)

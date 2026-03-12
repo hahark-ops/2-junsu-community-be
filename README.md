@@ -44,7 +44,7 @@
   - 동일 태그 재배포: `/Users/junsu/Desktop/2-junsu-community-be/scripts/redeploy_same_tag_ec2.sh`
     - `reuse_existing_images=true`로 기존 ECR 이미지를 그대로 다시 배포
   - CI 게이트: compile/compose 검증 + 로컬 compose 스모크 테스트
-  - FE checkout ref: 자동 배포는 `ci`가 기록한 FE 커밋 SHA를 사용, 수동 실행은 `fe_ref` override 또는 마지막 성공 `fe_sha`를 사용
+  - FE checkout ref: 자동 배포는 `ci`가 기록한 FE 커밋 SHA를 사용, 수동 실행은 `fe_ref`를 반드시 명시
   - 배포 시크릿: GitHub Actions가 SSM payload에 평문을 싣지 않고 AWS SSM Parameter Store `SecureString`에 저장 후 EC2가 직접 조회
   - EC2 롤백: 마지막 성공 `tag + source_sha + fe_sha` 기준
   - CORS: `CORS_ALLOW_ORIGINS_DEV/PROD` GitHub Variables가 필수이며, 없으면 배포가 즉시 실패
@@ -77,20 +77,29 @@
 
 ## ☸️ Kubernetes 로컬 배포 (Docker Desktop)
 
-- 스택 구성: `community-be`(2 replicas), `community-fe`, `community-db`, `community-redis`, `community-nginx`
-- 선언식 루트: `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`
+- 선언식 루트
+  - 기본 실행: `/Users/junsu/Desktop/2-junsu-community-be/k8s/base`
+  - DM 분산 증빙: `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/dm-scale-proof`
+  - 루트 `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`은 `base`를 가리킵니다.
+- base 스택 구성: `community-be`(1 replica), `community-redis`, `community-fe`, `community-db`, `community-nginx`
+- DM 분산 증빙 overlay 구성: base 위에 `community-be`만 2 replicas로 확장하고, 업로드 볼륨을 `emptyDir`로 바꿉니다.
 - secret 파일은 `.example`만 Git에 남고, 실제 `db-secrets.env`/`app-secrets.env`는 로컬에서 생성합니다.
+  - `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/config/db-secrets.env`
+  - `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/config/app-secrets.env`
 - 배포 스크립트:
   - `./scripts/k8s_up_local.sh`
   - `./scripts/k8s_down_local.sh`
   - `./scripts/k8s_qa_local.sh`
   - `./scripts/k8s_dm_multi_pod_proof.sh`
+- 배포 모드:
+  - 기본: `K8S_TARGET=base ./scripts/k8s_up_local.sh`
+  - DM 분산 증빙: `K8S_TARGET=dm-scale-proof ./scripts/k8s_up_local.sh`
 - 기본 접속:
   - `./scripts/k8s_up_local.sh`가 `svc/community-nginx -> 127.0.0.1:30080` port-forward를 자동 시작
   - 앱: `http://127.0.0.1:30080`
   - Swagger: `http://127.0.0.1:30080/docs`
 - DM 분산 증빙:
-  - `community-be` Pod 2개와 `community-redis`를 같이 띄운 뒤
+  - `K8S_TARGET=dm-scale-proof`에서 `community-be` Pod 2개로 확장한 뒤
   - `./scripts/k8s_dm_multi_pod_proof.sh`가 서로 다른 Pod IP에 직접 붙어 Redis pub/sub 기반 실시간 전달을 검증합니다.
 - 상세 가이드:
   - `/Users/junsu/Desktop/2-junsu-community-be/docs/K8S_LOCAL_GUIDE.md`

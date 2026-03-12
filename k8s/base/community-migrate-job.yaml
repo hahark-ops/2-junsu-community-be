@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: community-be-migrate
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: community-be-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: community-be:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - scripts/run_migrations_db.py
+          env:
+            - name: DB_HOST
+              value: community-db
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: community-db-secret
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_NAME

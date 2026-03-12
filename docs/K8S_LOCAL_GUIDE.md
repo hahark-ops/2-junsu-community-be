@@ -12,26 +12,32 @@
 
 참고:
 - 로컬 레지스트리 태그만 있는 경우(`localhost:5001/community-*:local`)도 `/Users/junsu/Desktop/2-junsu-community-be/scripts/k8s_up_local.sh`가 자동으로 `community-*:local` 태그로 변환합니다.
-- K8s 자산은 `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml` 기준으로 `kubectl apply -k` 한 번에 배포됩니다.
+- K8s 자산은 두 계층으로 나뉩니다.
+  - 기본 실행: `/Users/junsu/Desktop/2-junsu-community-be/k8s/base`
+  - DM 분산 증빙: `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/dm-scale-proof`
+  - 루트 `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`은 `base`를 가리킵니다.
 - 민감값은 `Secret`으로 분리되어 있고, `ConfigMap`에는 비민감 설정만 들어갑니다.
-- `k8s/kustomization.yaml`의 기본 namespace는 `community-local`입니다.
+- `k8s/base/kustomization.yaml`의 기본 namespace는 `community-local`입니다.
 - `NAMESPACE=... ./scripts/k8s_up_local.sh`로 실행하면 스크립트가 임시 kustomization에 target namespace를 강제로 다시 써서 apply합니다.
-- 실제 secret 원본 파일은 Git에 포함하지 않습니다. `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/db-secrets.env.example`, `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app-secrets.env.example`만 추적합니다.
-- `kubectl kustomize /Users/junsu/Desktop/2-junsu-community-be/k8s`는 `.example` secret 값으로 항상 렌더됩니다. 실제 apply는 `scripts/k8s_up_local.sh`가 임시 kustomization에서 `.env` 파일로 바꿔 수행합니다.
+- 실제 secret 원본 파일은 Git에 포함하지 않습니다. `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/config/db-secrets.env.example`, `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/config/app-secrets.env.example`만 추적합니다.
+- `kubectl apply -k /Users/junsu/Desktop/2-junsu-community-be/k8s/base`는 실제 secret 파일이 있어야만 동작합니다. `.example` 값은 직접 참조하지 않습니다.
 
 ## 2) 선언식 구성
 주요 파일:
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/community-workloads.yaml`
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app.env`
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/db-secrets.env.example`
-- `/Users/junsu/Desktop/2-junsu-community-be/k8s/config/app-secrets.env.example`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/kustomization.yaml`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/community-workloads.yaml`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/community-migrate-job.yaml`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/config/app.env`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/config/db-secrets.env.example`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/base/config/app-secrets.env.example`
+- `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/dm-scale-proof/kustomization.yaml`
 - `/Users/junsu/Desktop/2-junsu-community-be/scripts/k8s_dm_multi_pod_proof.sh`
 
 검증:
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
-kubectl kustomize k8s >/tmp/community-k8s-rendered.yaml
+kubectl kustomize k8s/base >/tmp/community-k8s-base-rendered.yaml
+kubectl kustomize k8s/overlays/dm-scale-proof >/tmp/community-k8s-dm-proof-rendered.yaml
 ```
 
 ## 3) Secret 파일 준비
@@ -39,15 +45,15 @@ kubectl kustomize k8s >/tmp/community-k8s-rendered.yaml
 
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
-cp k8s/config/db-secrets.env.example k8s/config/db-secrets.env
-cp k8s/config/app-secrets.env.example k8s/config/app-secrets.env
+cp k8s/base/config/db-secrets.env.example k8s/base/config/db-secrets.env
+cp k8s/base/config/app-secrets.env.example k8s/base/config/app-secrets.env
 ```
 
 수정 대상:
-- `k8s/config/db-secrets.env`
+- `k8s/base/config/db-secrets.env`
   - `MYSQL_ROOT_PASSWORD`
   - `DB_PASSWORD`
-- `k8s/config/app-secrets.env`
+- `k8s/base/config/app-secrets.env`
   - `UPLOAD_INTERNAL_TOKEN`
   - 필요 시 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
 
@@ -58,17 +64,24 @@ cp k8s/config/app-secrets.env.example k8s/config/app-secrets.env
 ## 4) 배포
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
-./scripts/k8s_up_local.sh
+K8S_TARGET=base ./scripts/k8s_up_local.sh
 ```
 
 옵션 예시:
 ```bash
 NAMESPACE=community-local \
+K8S_TARGET=base \
 PORT_FORWARD_PORT=30080 \
 BE_IMAGE=community-be:local \
 FE_IMAGE=community-fe:local \
 DB_IMAGE=community-db:local \
 ./scripts/k8s_up_local.sh
+```
+
+DM 분산 증빙 overlay:
+```bash
+cd /Users/junsu/Desktop/2-junsu-community-be
+K8S_TARGET=dm-scale-proof ./scripts/k8s_up_local.sh
 ```
 
 namespace 동작:
@@ -80,7 +93,7 @@ cd /Users/junsu/Desktop/2-junsu-community-be
 NAMESPACE=community-dev ./scripts/k8s_up_local.sh
 ```
 
-- 스크립트는 `k8s/kustomization.yaml`을 임시 디렉터리로 복사한 뒤 target namespace로 다시 써서 `kubectl apply -k`를 실행합니다.
+- 스크립트는 선택한 Kustomize 경로(`base` 또는 `overlays/dm-scale-proof`)를 해당 namespace에 적용합니다.
 
 ## 5) 접속
 공식 접근 경로는 `NodePort`가 아니라 `kubectl port-forward` 입니다.
@@ -103,10 +116,11 @@ QA_EMAIL='<qa_email>' QA_PASSWORD='<qa_password>' ./scripts/k8s_qa_local.sh
 `k8s_qa_local.sh`는 기본 URL이 열려 있지 않으면 `svc/community-nginx`에 포트포워드를 다시 붙인 뒤 `/Users/junsu/Desktop/2-junsu-community-be/scripts/qa_ec2_smoke.sh`를 실행합니다.
 
 ## 7) DM 분산 증빙 (Redis + 2 Pods)
-과제 2용으로는 `community-be` Pod 2개가 서로 다른 WebSocket 서버 역할을 맡고, Redis pub/sub이 이벤트를 중계합니다.
+과제 2용으로는 `K8S_TARGET=dm-scale-proof`에서 base 스택의 Redis를 그대로 사용하고, `community-be` Pod만 2개로 늘려 서로 다른 WebSocket 서버 역할을 맡게 합니다.
 
 ```bash
 cd /Users/junsu/Desktop/2-junsu-community-be
+K8S_TARGET=dm-scale-proof ./scripts/k8s_up_local.sh
 ./scripts/k8s_dm_multi_pod_proof.sh
 ```
 

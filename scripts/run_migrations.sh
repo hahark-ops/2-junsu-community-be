@@ -8,6 +8,8 @@ MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260226_add_session_expiry.sql"
 LIKE_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_ensure_like_unique.sql"
 DM_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_add_dm_tables.sql"
 DM_READ_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_add_dm_room_reads.sql"
+DM_CLIENT_MESSAGE_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_dm_client_message_id.sql"
+DM_REALTIME_PUBLISHED_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_dm_realtime_published.sql"
 SCHEMA_FILE="${ROOT_DIR}/schema.sql"
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
@@ -32,6 +34,16 @@ fi
 
 if [[ ! -f "${DM_READ_MIGRATION_FILE}" ]]; then
   echo "마이그레이션 파일이 없습니다: ${DM_READ_MIGRATION_FILE}"
+  exit 1
+fi
+
+if [[ ! -f "${DM_CLIENT_MESSAGE_MIGRATION_FILE}" ]]; then
+  echo "마이그레이션 파일이 없습니다: ${DM_CLIENT_MESSAGE_MIGRATION_FILE}"
+  exit 1
+fi
+
+if [[ ! -f "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}" ]]; then
+  echo "마이그레이션 파일이 없습니다: ${DM_REALTIME_PUBLISHED_MIGRATION_FILE}"
   exit 1
 fi
 
@@ -176,4 +188,40 @@ else
   echo "DM 읽음 상태 마이그레이션 적용 중..."
   compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_READ_MIGRATION_FILE}"
   echo "마이그레이션 적용 완료: $(basename "${DM_READ_MIGRATION_FILE}")"
+fi
+
+dm_client_message_status="$(compose_exec exec -T db sh -lc '
+mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''dm_messages'\'' AND COLUMN_NAME = '\''clientMessageId'\''),
+  (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''dm_messages'\'' AND INDEX_NAME = '\''unique_dm_message_client'\'')
+"
+')"
+
+IFS=$'\t' read -r dm_client_message_column_exists dm_client_message_unique_exists <<< "${dm_client_message_status}"
+
+if [[ "${dm_client_message_column_exists:-0}" -eq 1 && "${dm_client_message_unique_exists:-0}" -eq 1 ]]; then
+  echo "DM clientMessageId 스키마가 이미 반영되어 있어 마이그레이션을 건너뜁니다."
+else
+  echo "DM clientMessageId 마이그레이션 적용 중..."
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_CLIENT_MESSAGE_MIGRATION_FILE}"
+  echo "마이그레이션 적용 완료: $(basename "${DM_CLIENT_MESSAGE_MIGRATION_FILE}")"
+fi
+
+dm_realtime_published_exists="$(compose_exec exec -T db sh -lc '
+mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
+SELECT COUNT(*)
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = '\''dm_messages'\''
+  AND COLUMN_NAME = '\''realtimePublishedAt'\''
+"
+')"
+
+if [[ "${dm_realtime_published_exists:-0}" -eq 1 ]]; then
+  echo "DM realtimePublishedAt 스키마가 이미 반영되어 있어 마이그레이션을 건너뜁니다."
+else
+  echo "DM realtimePublishedAt 마이그레이션 적용 중..."
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}"
+  echo "마이그레이션 적용 완료: $(basename "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}")"
 fi

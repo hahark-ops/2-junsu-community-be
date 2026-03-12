@@ -77,9 +77,12 @@ CREATE TABLE IF NOT EXISTS dm_messages (
     messageId INT AUTO_INCREMENT PRIMARY KEY,
     roomId INT NOT NULL,
     senderEmail VARCHAR(255) NOT NULL,
+    clientMessageId VARCHAR(64) NOT NULL,
     content TEXT NOT NULL,
+    realtimePublishedAt DATETIME DEFAULT NULL,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_dm_messages_room_created (roomId, createdAt, messageId),
+    UNIQUE KEY unique_dm_message_client (roomId, senderEmail, clientMessageId),
     FOREIGN KEY (roomId) REFERENCES dm_rooms(roomId) ON DELETE CASCADE,
     FOREIGN KEY (senderEmail) REFERENCES users(email) ON DELETE CASCADE
 );

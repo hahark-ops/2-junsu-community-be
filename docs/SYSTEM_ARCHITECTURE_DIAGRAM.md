@@ -130,5 +130,6 @@ flowchart TD
 3. 업로드는 BE(`/v1/files/upload-url`)가 API Gateway -> Lambda로 presigned URL을 발급받고, 브라우저가 그 URL로 S3에 직접 업로드한다.
    - 브라우저가 API Gateway upload 경로를 직접 호출하는 것은 내부 토큰 검증으로 차단된다.
 4. 분석 API는 API Gateway -> Lambda -> Athena 경로로 처리한다.
-5. DM 실시간 분산 구조는 To-Be 기준 Redis pub/sub으로 각 BE Pod의 WebSocket 연결을 fan-out 한다.
+5. DM 실시간 분산 구조는 Redis pub/sub으로 각 BE Pod의 WebSocket 연결을 fan-out 한다.
+   - DM은 부가 기능이므로 Redis 장애는 `/healthz/realtime`로만 감시하고, 일반 API readiness는 유지한다.
 6. BE Lambda 경로는 API Gateway -> Lambda -> 별도 DB 대상(RDS 또는 `db_host_override`)으로 연결된다.

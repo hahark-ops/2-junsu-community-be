@@ -48,6 +48,7 @@ import asyncio
 import json
 import os
 import time
+import uuid
 
 import requests
 import websockets
@@ -123,6 +124,16 @@ def get_rooms(session, base_url):
     return response.json()["data"]
 
 
+def wait_realtime_ready(base_url, label):
+    deadline = time.time() + TIMEOUT_SECONDS
+    while time.time() < deadline:
+        response = requests.get(f"{base_url}/healthz/realtime", timeout=TIMEOUT_SECONDS)
+        if response.status_code == 200:
+            return
+        time.sleep(1)
+    raise SystemExit(f"[FAIL] realtime health {label}: expected 200, got {response.status_code}, body={response.text}")
+
+
 async def receive_until(ws, expected_types, timeout_seconds):
     found = {}
     start = time.time()
@@ -146,6 +157,8 @@ async def main():
     signup(session_b, BASE_B, EMAIL_B, NICK_B)
     login(session_a, BASE_A, EMAIL_A)
     login(session_b, BASE_B, EMAIL_B)
+    wait_realtime_ready(BASE_A, "pod A")
+    wait_realtime_ready(BASE_B, "pod B")
 
     me_a = get_me(session_a, BASE_A)
     me_b = get_me(session_b, BASE_B)
@@ -156,6 +169,7 @@ async def main():
 
     cookie_a = f"session_id={session_a.cookies['session_id']}"
     cookie_b = f"session_id={session_b.cookies['session_id']}"
+    client_message_id = str(uuid.uuid4())
 
     async with websockets.connect(f"{WS_A}/ws/dm/{room_id}", additional_headers={"Cookie": cookie_a}) as ws_a, \
         websockets.connect(f"{WS_B}/ws/dm/{room_id}", additional_headers={"Cookie": cookie_b}) as ws_b:
@@ -163,9 +177,17 @@ async def main():
         await receive_until(ws_b, ["connected"], TIMEOUT_SECONDS)
 
         content = f"redis-proof-{seed}"
-        await ws_a.send(json.dumps({"type": "send_message", "content": content}, ensure_ascii=False))
+        await ws_a.send(json.dumps({
+            "type": "send_message",
+            "content": content,
+            "clientMessageId": client_message_id,
+        }, ensure_ascii=False))
 
         received_b = await receive_until(ws_b, ["message_created"], TIMEOUT_SECONDS)
+        await ws_b.send(json.dumps({
+            "type": "mark_read",
+            "lastReadMessageId": received_b["message_created"]["data"]["messageId"],
+        }, ensure_ascii=False))
         received_a = await receive_until(ws_a, ["message_created", "messages_read"], TIMEOUT_SECONDS)
 
         rooms_a = get_rooms(session_a, BASE_A)
@@ -180,6 +202,7 @@ async def main():
             "messageContent": received_b["message_created"]["data"]["content"],
             "receiverIsMine": received_b["message_created"]["data"]["isMine"],
             "senderIsMine": received_a["message_created"]["data"]["isMine"],
+            "clientMessageId": received_b["message_created"]["data"]["clientMessageId"],
             "readEventType": received_a["messages_read"]["type"],
             "roomAUnread": room_a["unreadCount"],
             "roomBUnread": room_b["unreadCount"],
