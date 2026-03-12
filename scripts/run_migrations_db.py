@@ -15,6 +15,7 @@ MIGRATION_FILES = [
     ROOT_DIR / "scripts" / "migrations" / "20260309_add_dm_room_reads.sql",
     ROOT_DIR / "scripts" / "migrations" / "20260312_add_dm_client_message_id.sql",
     ROOT_DIR / "scripts" / "migrations" / "20260312_add_dm_realtime_published.sql",
+    ROOT_DIR / "scripts" / "migrations" / "20260312_add_web_push_subscriptions.sql",
 ]
 
 
@@ -109,6 +110,82 @@ def apply_sql_file(connection, sql_path: Path) -> None:
             pass
 
 
+def ensure_web_push_endpoint_hash(connection) -> None:
+    cursor = connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'web_push_subscriptions'
+              AND COLUMN_NAME = 'endpointHash'
+            """
+        )
+        column_exists = int((cursor.fetchone() or {}).get("count", 0)) > 0
+
+        if not column_exists:
+            cursor.execute(
+                """
+                ALTER TABLE web_push_subscriptions
+                ADD COLUMN endpointHash CHAR(64) NULL AFTER endpoint
+                """
+            )
+
+        cursor.execute(
+            """
+            UPDATE web_push_subscriptions
+            SET endpointHash = SHA2(endpoint, 256)
+            WHERE endpointHash IS NULL OR endpointHash = ''
+            """
+        )
+
+        cursor.execute(
+            """
+            ALTER TABLE web_push_subscriptions
+            MODIFY COLUMN endpointHash CHAR(64) NOT NULL
+            """
+        )
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'web_push_subscriptions'
+              AND INDEX_NAME = 'unique_web_push_endpoint'
+            """
+        )
+        legacy_index_exists = int((cursor.fetchone() or {}).get("count", 0)) > 0
+        if legacy_index_exists:
+            cursor.execute(
+                """
+                ALTER TABLE web_push_subscriptions
+                DROP INDEX unique_web_push_endpoint
+                """
+            )
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'web_push_subscriptions'
+              AND INDEX_NAME = 'unique_web_push_endpoint_hash'
+            """
+        )
+        hash_index_exists = int((cursor.fetchone() or {}).get("count", 0)) > 0
+        if not hash_index_exists:
+            cursor.execute(
+                """
+                ALTER TABLE web_push_subscriptions
+                ADD UNIQUE KEY unique_web_push_endpoint_hash (endpointHash)
+                """
+            )
+    finally:
+        cursor.close()
+
+
 def main() -> None:
     for migration_file in MIGRATION_FILES:
         if not migration_file.exists():
@@ -120,6 +197,10 @@ def main() -> None:
             apply_sql_file(connection, migration_file)
             connection.commit()
             print(f"[PASS] applied {migration_file.name}")
+
+        ensure_web_push_endpoint_hash(connection)
+        connection.commit()
+        print("[PASS] ensured web_push_subscriptions.endpointHash")
     finally:
         connection.close()
 

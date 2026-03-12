@@ -8,13 +8,20 @@ from controllers.dm import (
     get_my_rooms,
     get_room_messages,
     mark_room_as_read_and_notify,
-    publish_message_created,
+    publish_dm_message_and_notify_absent,
     require_room_access,
     serialize_message_for_user,
 )
 from dependencies import get_current_user, resolve_user_by_session_id
-from realtime.redis_bus import RedisBusError, is_redis_ready
+from realtime.redis_bus import (
+    RedisBusError,
+    clear_room_presence,
+    is_redis_ready,
+    refresh_room_presence,
+    set_room_presence,
+)
 from utils import APIException
+from uuid import uuid4
 
 router = APIRouter(prefix="/v1/dm")
 ws_router = APIRouter()
@@ -63,12 +70,15 @@ async def get_room_messages_endpoint(
 async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
     session_id = websocket.cookies.get("session_id")
     connected = False
+    connection_id = uuid4().hex
+    current_user = None
 
     try:
         _require_realtime_available()
         current_user = resolve_user_by_session_id(session_id)
         require_room_access(room_id, current_user["email"])
         await dm_connection_manager.connect(room_id, websocket, current_user["userId"], current_user["email"])
+        await set_room_presence(room_id, current_user["email"], connection_id)
         connected = True
         await websocket.send_json({"type": "connected", "roomId": room_id})
 
@@ -84,10 +94,10 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
                     payload.get("clientMessageId"),
                 )
                 if created_new:
-                    await publish_message_created(room_id, message_row)
+                    await publish_dm_message_and_notify_absent(room_id, current_user, message_row)
                 else:
                     if message_row.get("realtimePublishedAt") is None:
-                        await publish_message_created(room_id, message_row)
+                        await publish_dm_message_and_notify_absent(room_id, current_user, message_row)
                     else:
                         await websocket.send_json(
                             {
@@ -110,6 +120,10 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
                             status_code=400,
                         )
                 await mark_room_as_read_and_notify(room_id, current_user, last_read_message_id)
+                continue
+            if payload_type == "heartbeat":
+                _require_realtime_available()
+                await refresh_room_presence(room_id, current_user["email"], connection_id)
                 continue
             if payload_type != "send_message":
                 await websocket.send_json(
@@ -149,5 +163,6 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
     except Exception:
         raise
     finally:
-        if connected:
+        if connected and current_user:
+            await clear_room_presence(room_id, current_user["email"], connection_id)
             await dm_connection_manager.disconnect(room_id, websocket)

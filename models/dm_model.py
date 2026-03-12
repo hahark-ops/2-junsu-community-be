@@ -16,6 +16,24 @@ def get_room_by_id(room_id: int):
         return cursor.fetchone()
 
 
+def get_other_participant_email(room_id: int, user_email: str):
+    sql = """
+        SELECT
+            CASE
+                WHEN userAEmail = %s THEN userBEmail
+                ELSE userAEmail
+            END AS otherEmail
+        FROM dm_rooms
+        WHERE roomId = %s
+          AND (userAEmail = %s OR userBEmail = %s)
+        LIMIT 1
+    """
+    with get_cursor() as (_, cursor):
+        cursor.execute(sql, (user_email, room_id, user_email, user_email))
+        row = cursor.fetchone()
+        return row["otherEmail"] if row else None
+
+
 def get_room_by_participants(email_a: str, email_b: str):
     normalized_a, normalized_b = normalize_room_participants(email_a, email_b)
     sql = """

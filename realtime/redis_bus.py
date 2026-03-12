@@ -9,6 +9,7 @@ import redis.asyncio as redis
 
 DM_CHANNEL_PREFIX = os.getenv("DM_CHANNEL_PREFIX", "dm.room")
 REDIS_URL = os.getenv("REDIS_URL")
+DM_PRESENCE_TTL_SECONDS = int(os.getenv("DM_PRESENCE_TTL_SECONDS", "45"))
 
 _pub_client: redis.Redis | None = None
 _sub_client: redis.Redis | None = None
@@ -104,6 +105,40 @@ async def publish_room_event(room_id: int, payload: dict) -> None:
     if _pub_client is None:
         await ensure_redis_ready()
     await _pub_client.publish(room_channel(room_id), json.dumps(payload, ensure_ascii=False))
+
+
+def _presence_key(room_id: int, user_email: str, connection_id: str) -> str:
+    return f"dm:presence:room:{room_id}:user:{user_email}:conn:{connection_id}"
+
+
+def _presence_pattern(room_id: int, user_email: str) -> str:
+    return f"dm:presence:room:{room_id}:user:{user_email}:conn:*"
+
+
+async def set_room_presence(room_id: int, user_email: str, connection_id: str) -> None:
+    await ensure_redis_ready()
+    await _pub_client.set(_presence_key(room_id, user_email, connection_id), "1", ex=DM_PRESENCE_TTL_SECONDS)
+
+
+async def refresh_room_presence(room_id: int, user_email: str, connection_id: str) -> None:
+    await ensure_redis_ready()
+    await _pub_client.set(_presence_key(room_id, user_email, connection_id), "1", ex=DM_PRESENCE_TTL_SECONDS)
+
+
+async def clear_room_presence(room_id: int, user_email: str, connection_id: str) -> None:
+    if _pub_client is None:
+        return
+    try:
+        await _pub_client.delete(_presence_key(room_id, user_email, connection_id))
+    except Exception:
+        pass
+
+
+async def has_room_presence(room_id: int, user_email: str) -> bool:
+    await ensure_redis_ready()
+    async for _ in _pub_client.scan_iter(match=_presence_pattern(room_id, user_email), count=100):
+        return True
+    return False
 
 
 async def _subscriber_loop() -> None:

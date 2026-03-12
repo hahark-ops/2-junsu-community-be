@@ -1,6 +1,6 @@
 # 커뮤니티 프로젝트 보고서 초안 (노션 제출용)
 
-최종 업데이트: 2026-03-09 (KST)
+최종 업데이트: 2026-03-12 (KST)
 
 ## 0. 문서 목적
 
@@ -17,6 +17,7 @@
 - DM 실시간 경로:
   - WebSocket + Redis pub/sub
   - 단일 서버와 다중 Pod(Kubernetes) 모두 같은 이벤트 경로 사용
+  - 상대가 해당 DM 방에 연결되어 있지 않으면 Browser Service Worker 기반 Web Push 발송
 - BE Lambda 경로: 과제 증빙용으로 유지
   - API Gateway(`community-dev-be-http-api`) -> Lambda(`community-dev-be-api`)
   - Lambda DB 연동: RDS 또는 `db_host_override`로 지정한 DB 대상
@@ -33,6 +34,7 @@
 ```mermaid
 flowchart TD
     U(("사용자 웹 브라우저"))
+    SW["Service Worker<br/>(Web Push 수신)"]
 
     subgraph EC2_LAYER["Primary Runtime (Single EC2)"]
     direction TB
@@ -67,6 +69,11 @@ flowchart TD
     LAMBDA_UPLOAD -. Presigned URL .-> S3
     end
 
+    subgraph PUSH_LAYER["Notification Layer"]
+    direction TB
+    PUSH["Web Push Provider"]
+    end
+
     subgraph ANALYTICS_LAYER["Analytics Layer"]
     direction TB
     APIGW_ANALYTICS["API Gateway<br/>(/v1/analytics/health)"]
@@ -77,21 +84,26 @@ flowchart TD
 
     U -->|"1. 브라우저 접속 (HTTP)"| NG
     NG -->|"2. 일반 API (/v1/*)"| BE
-    U -->|"3. 이미지 업로드 URL 요청 (/v1/files/upload-url)"| BE
-    BE -->|"4. 내부 호출 (X-Upload-Internal-Token)"| APIGW_UPLOAD
-    U -->|"5. Presigned URL PUT"| S3
-    U -->|"6. Lambda API 검증 경로"| APIGW_BE
-    U -->|"7. 분석 API"| APIGW_ANALYTICS
+    U -->|"3. DM WebSocket"| BE
+    BE -->|"4. Redis pub/sub fan-out"| REDIS
+    BE -->|"5. 상대 부재 시 Web Push"| PUSH
+    PUSH -->|"6. 브라우저 알림"| SW
+    SW -->|"7. dm.html?roomId=..."| U
+    U -->|"8. 이미지 업로드 URL 요청 (/v1/files/upload-url)"| BE
+    BE -->|"9. 내부 호출 (X-Upload-Internal-Token)"| APIGW_UPLOAD
+    U -->|"10. Presigned URL PUT"| S3
+    U -->|"11. Lambda API 검증 경로"| APIGW_BE
+    U -->|"12. 분석 API"| APIGW_ANALYTICS
 
     classDef layer fill:#3b3f46,stroke:#8b8f96,color:#ffffff;
     classDef orange fill:#ff9800,stroke:#c77700,color:#ffffff;
     classDef blue fill:#2f74c0,stroke:#1e4f85,color:#ffffff;
     classDef light fill:#f2f2f2,stroke:#888,color:#333;
 
-    class EC2_LAYER,SERVERLESS_LAYER,STORAGE_LAYER,ANALYTICS_LAYER layer;
-    class APIGW_BE,LAMBDA_BE,APIGW_UPLOAD,LAMBDA_UPLOAD,APIGW_ANALYTICS,LAMBDA_ANALYTICS,S3 orange;
+    class EC2_LAYER,SERVERLESS_LAYER,STORAGE_LAYER,ANALYTICS_LAYER,PUSH_LAYER layer;
+    class APIGW_BE,LAMBDA_BE,APIGW_UPLOAD,LAMBDA_UPLOAD,APIGW_ANALYTICS,LAMBDA_ANALYTICS,S3,PUSH orange;
     class MYSQL,REDIS blue;
-    class EC2,NG,FE,BE light;
+    class EC2,NG,FE,BE,SW light;
 ```
 
 ### 1.2 To-Be (목표)
@@ -148,6 +160,7 @@ flowchart LR
 3. DM 실시간 통신:
    - FE -> WebSocket(`/ws/dm/{roomId}`) -> BE
    - BE -> Redis pub/sub -> 각 Pod/프로세스 로컬 소켓 fan-out
+   - 상대가 해당 방에 연결돼 있지 않으면 Web Push로 브라우저 알림 발송
 4. 이미지 업로드:
    - FE -> BE(`/v1/files/upload-url`, 인증 필요) -> API Gateway -> Lambda -> S3 Presigned URL
    - FE -> S3 직접 PUT
@@ -161,10 +174,11 @@ flowchart LR
 
 | 영역 | 사용 기술/서비스 | 역할 |
 |---|---|---|
-| Frontend | HTML/CSS/JavaScript, Node.js | 웹 UI 제공, API 호출 |
+| Frontend | HTML/CSS/JavaScript, Node.js, Service Worker | 웹 UI 제공, API 호출, 브라우저 푸시 수신 |
 | Backend | FastAPI, Uvicorn, Python | 인증/게시글/댓글/좋아요/업로드 API |
 | Reverse Proxy | Nginx (Docker) | FE 정적 서빙, `/v1/*` 백엔드 라우팅 |
 | Database | MySQL 8 (Docker) | 사용자/게시글/댓글/세션 데이터 저장 |
+| Realtime / Push | Redis pub/sub, Web Push(VAPID), pywebpush | 다중 Pod DM fan-out, 부재 시 브라우저 알림 |
 | Container | Docker, Docker Compose | 로컬/EC2 서비스 통합 배포 |
 | Image Registry | Docker Hub, ECR, Local Registry(Portainer 실습) | 컨테이너 이미지 저장/배포 |
 | Serverless | API Gateway, Lambda, S3, Athena | 업로드 presigned URL, 분석 API, BE Lambda 증빙 |
@@ -295,17 +309,18 @@ flowchart LR
   - 완료
   - FastAPI WebSocket 기반 1:1 실시간 DM 동작
 - 과제 2. 서버 분산 대응
-  - 이번 배치 구현/검증 대상
+  - 완료
   - Redis pub/sub + Kubernetes `community-be` 2 replicas로 증빙
 - 과제 3. 안 읽은 메시지 확인
   - 완료
   - `dm_room_reads`, 읽음 표시, 방별/전체 미읽음 집계 반영
 - 과제 4. 받는 사람 부재 시 알림
-  - 구현하지 않고 설계만 문서화
-  - To-Be
+  - 완료
+  - 구현 방식
     1. 메시지 저장 성공
-    2. 상대 사용자가 어떤 Pod에도 연결되어 있지 않으면 notification/outbox 기록
-    3. 이후 웹푸시 또는 모바일푸시로 확장
+    2. Redis presence로 상대가 해당 room에 연결돼 있는지 확인
+    3. 부재 상태면 Web Push subscription 목록으로 브라우저 알림 발송
+    4. Push 실패는 로그만 남기고 메시지 전송 성공은 유지
   - 운영 정책
     - DM은 부가 기능으로 취급
     - Redis 장애 시 `/healthz/realtime`로만 감지하고, 일반 게시글/댓글/인증 readiness는 유지

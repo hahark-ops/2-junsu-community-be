@@ -253,6 +253,21 @@ spec:
                 configMapKeyRef:
                   name: community-app-config
                   key: BCRYPT_ROUNDS
+            - name: WEB_PUSH_VAPID_PUBLIC_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: WEB_PUSH_VAPID_PUBLIC_KEY
+            - name: WEB_PUSH_VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: WEB_PUSH_VAPID_PRIVATE_KEY
+            - name: WEB_PUSH_SUBJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: WEB_PUSH_SUBJECT
           readinessProbe:
             httpGet:
               path: /healthz/ready

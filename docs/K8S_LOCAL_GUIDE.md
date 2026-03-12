@@ -56,6 +56,10 @@ cp k8s/base/config/app-secrets.env.example k8s/base/config/app-secrets.env
 - `k8s/base/config/app-secrets.env`
   - `UPLOAD_INTERNAL_TOKEN`
   - 필요 시 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+  - `WEB_PUSH_VAPID_PRIVATE_KEY`
+- `k8s/base/config/app.env`
+  - `WEB_PUSH_VAPID_PUBLIC_KEY`
+  - `WEB_PUSH_SUBJECT`
 
 주의:
 - `change_me_*` placeholder가 남아 있으면 `/Users/junsu/Desktop/2-junsu-community-be/scripts/k8s_up_local.sh`는 apply 전에 실패합니다.

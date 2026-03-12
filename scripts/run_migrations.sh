@@ -10,6 +10,8 @@ DM_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_add_dm_tables.sql"
 DM_READ_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260309_add_dm_room_reads.sql"
 DM_CLIENT_MESSAGE_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_dm_client_message_id.sql"
 DM_REALTIME_PUBLISHED_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_dm_realtime_published.sql"
+WEB_PUSH_SUBSCRIPTIONS_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_web_push_subscriptions.sql"
+WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_fix_web_push_endpoint_hash.sql"
 SCHEMA_FILE="${ROOT_DIR}/schema.sql"
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
@@ -44,6 +46,16 @@ fi
 
 if [[ ! -f "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}" ]]; then
   echo "마이그레이션 파일이 없습니다: ${DM_REALTIME_PUBLISHED_MIGRATION_FILE}"
+  exit 1
+fi
+
+if [[ ! -f "${WEB_PUSH_SUBSCRIPTIONS_MIGRATION_FILE}" ]]; then
+  echo "마이그레이션 파일이 없습니다: ${WEB_PUSH_SUBSCRIPTIONS_MIGRATION_FILE}"
+  exit 1
+fi
+
+if [[ ! -f "${WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE}" ]]; then
+  echo "마이그레이션 파일이 없습니다: ${WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE}"
   exit 1
 fi
 
@@ -224,4 +236,41 @@ else
   echo "DM realtimePublishedAt 마이그레이션 적용 중..."
   compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}"
   echo "마이그레이션 적용 완료: $(basename "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}")"
+fi
+
+web_push_subscriptions_exists="$(compose_exec exec -T db sh -lc '
+mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
+SELECT COUNT(*)
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = '\''web_push_subscriptions'\''
+"
+')"
+
+if [[ "${web_push_subscriptions_exists:-0}" -eq 1 ]]; then
+  echo "웹푸시 구독 테이블이 이미 반영되어 있어 마이그레이션을 건너뜁니다."
+else
+  echo "웹푸시 구독 테이블 마이그레이션 적용 중..."
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${WEB_PUSH_SUBSCRIPTIONS_MIGRATION_FILE}"
+  echo "마이그레이션 적용 완료: $(basename "${WEB_PUSH_SUBSCRIPTIONS_MIGRATION_FILE}")"
+fi
+
+web_push_endpoint_hash_status="$(compose_exec exec -T db sh -lc '
+mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''web_push_subscriptions'\'' AND COLUMN_NAME = '\''endpointHash'\''),
+  (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''web_push_subscriptions'\'' AND INDEX_NAME = '\''unique_web_push_endpoint_hash'\'')
+"
+')"
+
+IFS=$'\t' read -r web_push_endpoint_hash_column_exists web_push_endpoint_hash_index_exists <<< "${web_push_endpoint_hash_status}"
+
+if [[ "${web_push_subscriptions_exists:-0}" -eq 0 ]]; then
+  echo "웹푸시 구독 테이블이 방금 생성되어 endpointHash 마이그레이션을 건너뜁니다."
+elif [[ "${web_push_endpoint_hash_column_exists:-0}" -eq 1 && "${web_push_endpoint_hash_index_exists:-0}" -eq 1 ]]; then
+  echo "웹푸시 endpointHash 스키마가 이미 반영되어 있어 마이그레이션을 건너뜁니다."
+else
+  echo "웹푸시 endpointHash 마이그레이션 적용 중..."
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE}"
+  echo "마이그레이션 적용 완료: $(basename "${WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE}")"
 fi

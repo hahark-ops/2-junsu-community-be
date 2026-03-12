@@ -1,12 +1,13 @@
 # 시스템 아키텍처 설계도 (노션 붙여넣기용)
 
-최종 업데이트: 2026-03-09 (KST)
+최종 업데이트: 2026-03-12 (KST)
 
 ## As-Is (현재 운영)
 
 ```mermaid
 flowchart TD
     U(("사용자 웹 브라우저"))
+    SW["Browser Service Worker<br/>(Web Push 수신)"]
 
     subgraph EC2_LAYER["Primary Runtime (Single EC2)"]
     direction TB
@@ -21,6 +22,11 @@ flowchart TD
     NG --> BE
     BE --> MYSQL
     BE --> REDIS
+    end
+
+    subgraph PUSH_LAYER["Notification Layer"]
+    direction TB
+    PUSH["Web Push Provider"]
     end
 
     subgraph BE_LAMBDA_LAYER["BE Lambda Path (Assignment Evidence)"]
@@ -51,21 +57,26 @@ flowchart TD
 
     U -->|"1. 브라우저 접속 (HTTP)"| NG
     NG -->|"2. 일반 API (/v1/*)"| BE
-    U -->|"3. 업로드 URL 요청"| BE
-    BE -->|"4. 내부 호출 (X-Upload-Internal-Token)"| APIGW_UPLOAD
-    U -->|"5. Presigned URL PUT"| S3
-    U -->|"6. BE Lambda 검증 경로"| APIGW_BE
-    U -->|"7. 분석 API"| APIGW_ANALYTICS
+    U -->|"3. DM WebSocket"| BE
+    BE -->|"4. Redis pub/sub fan-out"| REDIS
+    BE -->|"5. 상대 부재 시 Web Push"| PUSH
+    PUSH -->|"6. 브라우저 알림"| SW
+    SW -->|"7. dm.html?roomId=..."| U
+    U -->|"8. 업로드 URL 요청"| BE
+    BE -->|"9. 내부 호출 (X-Upload-Internal-Token)"| APIGW_UPLOAD
+    U -->|"10. Presigned URL PUT"| S3
+    U -->|"11. BE Lambda 검증 경로"| APIGW_BE
+    U -->|"12. 분석 API"| APIGW_ANALYTICS
 
     classDef layer fill:#3b3f46,stroke:#8b8f96,color:#ffffff;
     classDef orange fill:#ff9800,stroke:#c77700,color:#ffffff;
     classDef blue fill:#2f74c0,stroke:#1e4f85,color:#ffffff;
     classDef light fill:#f2f2f2,stroke:#888,color:#333;
 
-    class EC2_LAYER,BE_LAMBDA_LAYER,STORAGE_LAYER,ANALYTICS_LAYER layer;
-    class APIGW_BE,LAMBDA_BE,APIGW_UPLOAD,LAMBDA_UPLOAD,APIGW_ANALYTICS,LAMBDA_ANALYTICS,S3 orange;
+    class EC2_LAYER,BE_LAMBDA_LAYER,STORAGE_LAYER,ANALYTICS_LAYER,PUSH_LAYER layer;
+    class APIGW_BE,LAMBDA_BE,APIGW_UPLOAD,LAMBDA_UPLOAD,APIGW_ANALYTICS,LAMBDA_ANALYTICS,S3,PUSH orange;
     class MYSQL,REDIS blue;
-    class EC2,NG,FE,BE light;
+    class EC2,NG,FE,BE,SW light;
 ```
 
 ## To-Be (고가용성 목표)
@@ -88,6 +99,7 @@ flowchart TD
     subgraph DATA["Data Layer (Managed)"]
     direction TB
     RDS[("RDS MySQL<br/>(Multi-AZ)")]
+    REDIS[("Redis / ElastiCache")]
     end
 
     subgraph SERVERLESS["Serverless Integrations"]
@@ -104,6 +116,8 @@ flowchart TD
     ALB --> APPB
     APPA --> RDS
     APPB --> RDS
+    APPA --> REDIS
+    APPB --> REDIS
 
     U --> APIGW
     APIGW --> LUP
@@ -131,5 +145,6 @@ flowchart TD
    - 브라우저가 API Gateway upload 경로를 직접 호출하는 것은 내부 토큰 검증으로 차단된다.
 4. 분석 API는 API Gateway -> Lambda -> Athena 경로로 처리한다.
 5. DM 실시간 분산 구조는 Redis pub/sub으로 각 BE Pod의 WebSocket 연결을 fan-out 한다.
-   - DM은 부가 기능이므로 Redis 장애는 `/healthz/realtime`로만 감시하고, 일반 API readiness는 유지한다.
-6. BE Lambda 경로는 API Gateway -> Lambda -> 별도 DB 대상(RDS 또는 `db_host_override`)으로 연결된다.
+6. 상대가 해당 DM 방에 연결되어 있지 않으면, Service Worker가 받을 수 있는 Web Push를 발송한다.
+7. DM은 부가 기능이므로 Redis 장애는 `/healthz/realtime`로만 감시하고, 일반 API readiness는 유지한다.
+8. BE Lambda 경로는 API Gateway -> Lambda -> 별도 DB 대상(RDS 또는 `db_host_override`)으로 연결된다.

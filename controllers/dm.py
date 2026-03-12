@@ -8,6 +8,7 @@ import mysql.connector
 from models import dm_model, user_model
 from realtime.redis_bus import publish_room_event
 from utils import APIException
+from controllers.webpush import notify_absent_recipient_best_effort
 
 MAX_DM_MESSAGE_LENGTH = 500
 MAX_CLIENT_MESSAGE_ID_LENGTH = 64
@@ -332,6 +333,11 @@ async def publish_message_created(room_id: int, message_row: dict):
     }
     await publish_room_event(room_id, payload)
     dm_model.mark_message_realtime_published(message_row["messageId"])
+
+
+async def publish_dm_message_and_notify_absent(room_id: int, sender_user: dict, message_row: dict):
+    await publish_message_created(room_id, message_row)
+    await notify_absent_recipient_best_effort(room_id, sender_user, message_row)
 
 
 def _serialize_payload_for_connection(payload: dict, current_connection: dict) -> dict:
