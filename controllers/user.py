@@ -7,9 +7,6 @@ async def get_my_info(user: dict):
     """
     내 정보 조회 (세션 기반)
     """
-    if user.get("is_deleted"):
-        raise APIException(code="FORBIDDEN", message="접근이 거부되었습니다.", status_code=403)
-
     return {
         "code": "GET_MY_INFO_SUCCESS",
         "message": "내 정보 조회 성공",
@@ -31,9 +28,6 @@ async def get_user_by_id(user_id: int, current_user: dict):
     matched_user = user_model.get_user_by_id(user_id)
     if not matched_user:
         raise APIException(code="USER_NOT_FOUND", message="해당 사용자를 찾을 수 없습니다.", status_code=404)
-        
-    if matched_user.get("is_deleted"):
-        raise APIException(code="FORBIDDEN", message="접근이 거부되었습니다.", status_code=403)
 
     return {
         "code": "GET_USER_SUCCESS",
@@ -136,13 +130,13 @@ async def change_password(user_id: int, password_data: dict, current_user: dict)
     }
 
 # ==========================================
-# 5. 회원 탈퇴 (Soft Delete)
+# 5. 회원 탈퇴 (Hard Delete)
 # ==========================================
 async def delete_user(current_user: dict):
-    user_model.soft_delete_user(current_user["userId"], current_user["email"])
+    user_model.hard_delete_user(current_user["userId"], current_user["email"])
     
     return {
         "code": "DELETE_USER_SUCCESS",
-        "message": "회원 탈퇴가 안전하게 처리되었습니다. 그동안 이용해주셔서 감사합니다.",
+        "message": "회원 탈퇴가 완료되었습니다. 계정과 관련 데이터가 영구 삭제되었습니다.",
         "data": None
     }

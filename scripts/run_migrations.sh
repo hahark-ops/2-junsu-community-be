@@ -12,6 +12,7 @@ DM_CLIENT_MESSAGE_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_dm
 DM_REALTIME_PUBLISHED_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_dm_realtime_published.sql"
 WEB_PUSH_SUBSCRIPTIONS_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_add_web_push_subscriptions.sql"
 WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_fix_web_push_endpoint_hash.sql"
+HARD_DELETE_MIGRATION_FILE="${ROOT_DIR}/scripts/migrations/20260312_drop_users_is_deleted.sql"
 SCHEMA_FILE="${ROOT_DIR}/schema.sql"
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
@@ -56,6 +57,11 @@ fi
 
 if [[ ! -f "${WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE}" ]]; then
   echo "마이그레이션 파일이 없습니다: ${WEB_PUSH_ENDPOINT_HASH_MIGRATION_FILE}"
+  exit 1
+fi
+
+if [[ ! -f "${HARD_DELETE_MIGRATION_FILE}" ]]; then
+  echo "마이그레이션 파일이 없습니다: ${HARD_DELETE_MIGRATION_FILE}"
   exit 1
 fi
 
@@ -236,6 +242,24 @@ else
   echo "DM realtimePublishedAt 마이그레이션 적용 중..."
   compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}"
   echo "마이그레이션 적용 완료: $(basename "${DM_REALTIME_PUBLISHED_MIGRATION_FILE}")"
+fi
+
+users_is_deleted_exists="$(compose_exec exec -T db sh -lc '
+mysql -N -B -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "
+SELECT COUNT(*)
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = '\''users'\''
+  AND COLUMN_NAME = '\''is_deleted'\''
+"
+')"
+
+if [[ "${users_is_deleted_exists:-0}" -eq 1 ]]; then
+  echo "회원 hard delete 스키마 마이그레이션 적용 중..."
+  compose_exec exec -T db sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "${HARD_DELETE_MIGRATION_FILE}"
+  echo "마이그레이션 적용 완료: $(basename "${HARD_DELETE_MIGRATION_FILE}")"
+else
+  echo "회원 hard delete 스키마가 이미 반영되어 있어 마이그레이션을 건너뜁니다."
 fi
 
 web_push_subscriptions_exists="$(compose_exec exec -T db sh -lc '

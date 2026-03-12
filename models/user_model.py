@@ -9,13 +9,13 @@ ALLOWED_USER_UPDATE_FIELDS = {
 
 def get_user_by_id(user_id: int):
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT * FROM users WHERE userId = %s AND is_deleted = 0", (user_id,))
+        cursor.execute("SELECT * FROM users WHERE userId = %s", (user_id,))
         return cursor.fetchone()
 
 
 def get_user_by_email(email: str):
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT * FROM users WHERE email = %s AND is_deleted = 0", (email,))
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
         return cursor.fetchone()
 
 
@@ -94,11 +94,11 @@ def update_user_password(user_id: int, password_hash: str):
     update_user_fields(user_id, {"password": password_hash})
 
 
-def soft_delete_user(user_id: int, user_email: str):
+def hard_delete_user(user_id: int, user_email: str):
     with get_cursor(dictionary=False) as (conn, cursor):
         try:
-            cursor.execute("UPDATE users SET is_deleted = 1 WHERE userId = %s", (user_id,))
             cursor.execute("DELETE FROM sessions WHERE userEmail = %s", (user_email,))
+            cursor.execute("DELETE FROM users WHERE userId = %s", (user_id,))
             conn.commit()
         except Exception:
             conn.rollback()

@@ -28,7 +28,7 @@ def create_user(email: str, password_hash: str, nickname: str, profile_image: st
 
 def get_user_by_email(email: str):
     with get_cursor() as (_, cursor):
-        cursor.execute("SELECT * FROM users WHERE email = %s AND is_deleted = 0", (email,))
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
         return cursor.fetchone()
 
 

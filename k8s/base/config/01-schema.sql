@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255) NOT NULL, -- bcrypt 해시 저장
     nickname VARCHAR(50) NOT NULL UNIQUE,
     profileimage TEXT,
-    is_deleted BOOLEAN DEFAULT FALSE,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

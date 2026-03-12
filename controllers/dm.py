@@ -111,9 +111,6 @@ async def create_or_get_room(target_user_id: int, current_user: dict):
     if not target_user:
         raise APIException(code="USER_NOT_FOUND", message="채팅할 사용자를 찾을 수 없습니다.", status_code=404)
 
-    if target_user.get("is_deleted"):
-        raise APIException(code="USER_NOT_FOUND", message="채팅할 사용자를 찾을 수 없습니다.", status_code=404)
-
     room = dm_model.get_room_by_participants(current_user["email"], target_user["email"])
     if not room:
         try:

@@ -16,6 +16,7 @@ MIGRATION_FILES = [
     ROOT_DIR / "scripts" / "migrations" / "20260312_add_dm_client_message_id.sql",
     ROOT_DIR / "scripts" / "migrations" / "20260312_add_dm_realtime_published.sql",
     ROOT_DIR / "scripts" / "migrations" / "20260312_add_web_push_subscriptions.sql",
+    ROOT_DIR / "scripts" / "migrations" / "20260312_drop_users_is_deleted.sql",
 ]
 
 
