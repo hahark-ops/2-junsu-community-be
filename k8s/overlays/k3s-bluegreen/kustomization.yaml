@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - bluegreen-workloads.yaml
+  - ingress.yaml
+
+patches:
+  - path: patch-delete-nginx-deployment.yaml
+  - path: patch-delete-nginx-service.yaml
+  - path: patch-delete-standard-be.yaml
+  - path: patch-delete-standard-fe.yaml
+  - path: patch-db-aws.yaml
+  - path: patch-be-service-blue.yaml
+  - path: patch-fe-service-blue.yaml
+  - path: patch-migrate-job.yaml
+

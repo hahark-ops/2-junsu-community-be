@@ -1,0 +1,458 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-be-blue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-be
+      active: blue
+  template:
+    metadata:
+      labels:
+        app: community-be
+        active: blue
+    spec:
+      imagePullSecrets:
+        - name: community-ecr-pull
+      containers:
+        - name: be
+          image: __BE_IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_HOST
+              value: community-db
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: community-db-secret
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_NAME
+            - name: DB_POOL_NAME
+              value: community_pool
+            - name: DB_POOL_SIZE
+              value: "5"
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: REDIS_URL
+            - name: CORS_ALLOW_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: CORS_ALLOW_ORIGINS
+            - name: COOKIE_SECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_SECURE
+            - name: COOKIE_SAMESITE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_SAMESITE
+            - name: COOKIE_MAX_AGE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_MAX_AGE
+            - name: MAX_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_UPLOAD_SIZE_BYTES
+            - name: MAX_PROFILE_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_PROFILE_UPLOAD_SIZE_BYTES
+            - name: MAX_POST_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_POST_UPLOAD_SIZE_BYTES
+            - name: UPLOAD_PROVIDER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: UPLOAD_PROVIDER
+            - name: UPLOAD_DIR
+              value: uploads
+            - name: UPLOAD_LAMBDA_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: UPLOAD_LAMBDA_API_URL
+            - name: UPLOAD_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: UPLOAD_INTERNAL_TOKEN
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_BUCKET_NAME
+            - name: S3_OBJECT_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_OBJECT_PREFIX
+            - name: S3_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_BASE_URL
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: AWS_SESSION_TOKEN
+            - name: BCRYPT_ROUNDS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: BCRYPT_ROUNDS
+            - name: WEB_PUSH_VAPID_PUBLIC_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: WEB_PUSH_VAPID_PUBLIC_KEY
+            - name: WEB_PUSH_VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: WEB_PUSH_VAPID_PRIVATE_KEY
+            - name: WEB_PUSH_SUBJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: WEB_PUSH_SUBJECT
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: uploads-data
+              mountPath: /app/uploads
+      volumes:
+        - name: uploads-data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-be-green
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-be
+      active: green
+  template:
+    metadata:
+      labels:
+        app: community-be
+        active: green
+    spec:
+      imagePullSecrets:
+        - name: community-ecr-pull
+      containers:
+        - name: be
+          image: __BE_IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_HOST
+              value: community-db
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: community-db-secret
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: DB_NAME
+            - name: DB_POOL_NAME
+              value: community_pool
+            - name: DB_POOL_SIZE
+              value: "5"
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: REDIS_URL
+            - name: CORS_ALLOW_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: CORS_ALLOW_ORIGINS
+            - name: COOKIE_SECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_SECURE
+            - name: COOKIE_SAMESITE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_SAMESITE
+            - name: COOKIE_MAX_AGE
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: COOKIE_MAX_AGE
+            - name: MAX_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_UPLOAD_SIZE_BYTES
+            - name: MAX_PROFILE_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_PROFILE_UPLOAD_SIZE_BYTES
+            - name: MAX_POST_UPLOAD_SIZE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: MAX_POST_UPLOAD_SIZE_BYTES
+            - name: UPLOAD_PROVIDER
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: UPLOAD_PROVIDER
+            - name: UPLOAD_DIR
+              value: uploads
+            - name: UPLOAD_LAMBDA_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: UPLOAD_LAMBDA_API_URL
+            - name: UPLOAD_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: UPLOAD_INTERNAL_TOKEN
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_BUCKET_NAME
+            - name: S3_OBJECT_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_OBJECT_PREFIX
+            - name: S3_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: S3_BASE_URL
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: AWS_SESSION_TOKEN
+            - name: BCRYPT_ROUNDS
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: BCRYPT_ROUNDS
+            - name: WEB_PUSH_VAPID_PUBLIC_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: WEB_PUSH_VAPID_PUBLIC_KEY
+            - name: WEB_PUSH_VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: community-app-secret
+                  key: WEB_PUSH_VAPID_PRIVATE_KEY
+            - name: WEB_PUSH_SUBJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: community-app-config
+                  key: WEB_PUSH_SUBJECT
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: uploads-data
+              mountPath: /app/uploads
+      volumes:
+        - name: uploads-data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-fe-blue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-fe
+      active: blue
+  template:
+    metadata:
+      labels:
+        app: community-fe
+        active: blue
+    spec:
+      imagePullSecrets:
+        - name: community-ecr-pull
+      containers:
+        - name: fe
+          image: __FE_IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: BACKEND_TARGET
+              value: http://community-be:8000
+          readinessProbe:
+            httpGet:
+              path: /login.html
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /login.html
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-fe-green
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: community-fe
+      active: green
+  template:
+    metadata:
+      labels:
+        app: community-fe
+        active: green
+    spec:
+      imagePullSecrets:
+        - name: community-ecr-pull
+      containers:
+        - name: fe
+          image: __FE_IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: BACKEND_TARGET
+              value: http://community-be:8000
+          readinessProbe:
+            httpGet:
+              path: /login.html
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /login.html
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+

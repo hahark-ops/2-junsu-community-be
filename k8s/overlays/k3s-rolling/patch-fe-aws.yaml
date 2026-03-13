@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-fe
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    spec:
+      imagePullSecrets:
+        - name: community-ecr-pull
+      containers:
+        - name: fe
+          image: __FE_IMAGE__
+

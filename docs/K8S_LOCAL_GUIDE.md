@@ -16,6 +16,10 @@
   - 기본 실행: `/Users/junsu/Desktop/2-junsu-community-be/k8s/base`
   - DM 분산 증빙: `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/dm-scale-proof`
   - 루트 `/Users/junsu/Desktop/2-junsu-community-be/k8s/kustomization.yaml`은 `base`를 가리킵니다.
+- AWS k3s용 overlay는 이 문서 범위 밖입니다.
+  - Rolling: `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/k3s-rolling`
+  - Blue/Green: `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/k3s-bluegreen`
+  - 가이드: `/Users/junsu/Desktop/2-junsu-community-be/docs/K3S_AWS_GUIDE.md`
 - 민감값은 `Secret`으로 분리되어 있고, `ConfigMap`에는 비민감 설정만 들어갑니다.
 - `k8s/base/kustomization.yaml`의 기본 namespace는 `community-local`입니다.
 - `NAMESPACE=... ./scripts/k8s_up_local.sh`로 실행하면 스크립트가 임시 kustomization에 target namespace를 강제로 다시 써서 apply합니다.

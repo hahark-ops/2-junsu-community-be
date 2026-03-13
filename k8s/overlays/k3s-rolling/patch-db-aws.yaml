@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: community-db
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: community-ecr-pull
+      containers:
+        - name: db
+          image: __DB_IMAGE__
+

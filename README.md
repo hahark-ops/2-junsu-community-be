@@ -11,6 +11,7 @@
 - [CI/CD (과제 8)](#-cicd-과제-8)
 - [추가 과제 (Portainer/Registry)](#-추가-과제-portainerregistry)
 - [Kubernetes 로컬 배포 (Docker Desktop)](#-kubernetes-로컬-배포-docker-desktop)
+- [AWS k3s 배포 (과제 1·2·3)](#-aws-k3s-배포-과제-123)
 - [프로젝트 구조](#-프로젝트-구조)
 - [설치 및 실행](#️-설치-및-실행)
 - [페이지 상세](#-페이지-상세)
@@ -103,6 +104,44 @@
   - `./scripts/k8s_dm_multi_pod_proof.sh`가 서로 다른 Pod IP에 직접 붙어 Redis pub/sub 기반 실시간 전달을 검증합니다.
 - 상세 가이드:
   - `/Users/junsu/Desktop/2-junsu-community-be/docs/K8S_LOCAL_GUIDE.md`
+
+---
+
+## ☁️ AWS k3s 배포 (과제 1·2·3)
+
+- 목적
+  - 과제 1: EC2 단일 노드 `k3s`에 Kubernetes 배포 + Rolling Update
+  - 과제 2: Rolling Update + Blue/Green 무중단 배포를 부하 중 검증
+  - 과제 3: 두 개의 독립 `k3s` 클러스터에 동일 앱 배포 증빙
+- AWS 전용 overlay
+  - Rolling: `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/k3s-rolling`
+  - Blue/Green: `/Users/junsu/Desktop/2-junsu-community-be/k8s/overlays/k3s-bluegreen`
+- AWS k3s 스크립트
+  - bootstrap: `/Users/junsu/Desktop/2-junsu-community-be/scripts/k3s_bootstrap_ec2.sh`
+  - kubeconfig 회수: `/Users/junsu/Desktop/2-junsu-community-be/scripts/k3s_fetch_kubeconfig.sh`
+  - 원격 env 회수: `/Users/junsu/Desktop/2-junsu-community-be/scripts/k3s_export_remote_env.sh`
+  - 배포: `/Users/junsu/Desktop/2-junsu-community-be/scripts/k3s_deploy.sh`
+  - smoke: `/Users/junsu/Desktop/2-junsu-community-be/scripts/k3s_smoke.sh`
+  - blue/green 전환: `/Users/junsu/Desktop/2-junsu-community-be/scripts/k3s_bluegreen_switch.sh`
+  - 부하 테스트: `/Users/junsu/Desktop/2-junsu-community-be/scripts/k3s_load_test.sh`
+- 배포 방식
+  - 기존 로컬 K8s와 달리 AWS k3s 경로에서는 앱 내부 `nginx`를 제거하고, k3s 기본 Traefik Ingress가 `/`를 FE로, `/v1`, `/docs`, `/openapi.json`, `/healthz`, `/ws`를 BE로 라우팅합니다.
+  - FE/BE는 rolling overlay에서 `replicas: 2`, `maxUnavailable: 0`, `maxSurge: 1` 기준으로 배포합니다.
+  - blue/green overlay는 `community-fe`/`community-be` stable Service selector를 `active=blue|green` 라벨로 전환합니다.
+- 검증 결과
+  - 과제 1:
+    - 클러스터 A `13.125.228.204`
+    - `./scripts/k3s_smoke.sh` 통과
+  - 과제 2:
+    - Rolling Update 중 부하 테스트 결과: `p95 34.86ms`, 실패율 `0.31%`
+    - Blue/Green 전환 중 부하 테스트 결과: `p95 56.78ms`, 실패율 `0.00%`
+    - 두 경우 모두 `kubectl rollout status` 성공, public endpoint 응답 유지 확인
+  - 과제 3:
+    - 클러스터 A `13.125.228.204`
+    - 클러스터 B `43.202.40.115`
+    - 두 public IP 모두 `./scripts/k3s_smoke.sh` 통과
+- 자세한 가이드
+  - `/Users/junsu/Desktop/2-junsu-community-be/docs/K3S_AWS_GUIDE.md`
 
 ---
 

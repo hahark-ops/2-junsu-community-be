@@ -1,0 +1,13 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: community-be-migrate
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: community-ecr-pull
+      containers:
+        - name: migrate
+          image: __BE_IMAGE__
+
