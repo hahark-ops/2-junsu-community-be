@@ -44,7 +44,12 @@
   - 자동 배포: `main/develop` push -> `ci` 성공 시 `deploy-ec2` 자동 실행
   - 동일 태그 재배포: `/Users/junsu/Desktop/2-junsu-community-be/scripts/redeploy_same_tag_ec2.sh`
     - `reuse_existing_images=true`로 기존 ECR 이미지를 그대로 다시 배포
-  - CI 게이트: compile/compose 검증 + 로컬 compose 스모크 테스트
+  - CI 게이트:
+    - `python -m compileall`
+    - `pytest --cov --cov-fail-under=70`
+    - compose 설정 검증
+    - 로컬 compose 기반 `qa_ec2_smoke.sh`
+    - Playwright E2E (`회원가입/로그인/게시글/댓글/좋아요/DM/탈퇴 후 재가입`)
   - FE checkout ref: 자동 배포는 `ci`가 기록한 FE 커밋 SHA를 사용, 수동 실행은 `fe_ref`를 반드시 명시
   - 배포 시크릿: GitHub Actions가 SSM payload에 평문을 싣지 않고 AWS SSM Parameter Store `SecureString`에 저장 후 EC2가 직접 조회
   - EC2 롤백: 마지막 성공 `tag + source_sha + fe_sha` 기준

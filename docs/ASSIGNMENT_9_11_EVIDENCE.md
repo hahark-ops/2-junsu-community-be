@@ -1,6 +1,6 @@
 # 과제 9~11 실행 증빙
 
-최종 업데이트: 2026-03-01 (KST)
+최종 업데이트: 2026-03-16 (KST)
 
 ## 과제 9: 인프라 제거 후 Terraform 재구축
 
@@ -16,12 +16,26 @@
 
 ## 과제 10: 테스트코드 -> CI 게이트
 
-- CI 성공(run):
-  - [22544670598](https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544670598)
-- CI 실패(run, 게이트 차단 검증):
-  - [22544406601](https://github.com/hahark-ops/2-junsu-community-be/actions/runs/22544406601)
-  - 실패 SHA: `9d03e4f...`
-  - 확인 내용: 해당 SHA 기준 `deploy-ec2` 자동 실행 없음
+- 테스트 자산
+  - 백엔드: `/Users/junsu/Desktop/2-junsu-community-be/tests`
+    - `pytest + TestClient`
+    - coverage gate: `--cov-fail-under=70`
+  - 프론트엔드: `/Users/junsu/Desktop/2-junsu-community-fe/tests/e2e`
+    - `Playwright E2E`
+    - 시나리오: 회원가입/로그인/프로필 수정/탈퇴 후 재가입/게시글/댓글/좋아요/DM/unread
+  - 보조 smoke:
+    - `/Users/junsu/Desktop/2-junsu-community-be/scripts/qa_ec2_smoke.sh`
+- 로컬 검증 결과
+  - 백엔드: `48 passed`, coverage `71.30%`
+  - 프론트엔드: `npm run test:e2e -- --list` 기준 3개 E2E 시나리오 인식 확인
+- CI 완료 기준
+  - `python-compile` 통과
+  - `be-pytest` 통과
+  - `compose-config` 통과
+  - `integration-stack`에서 `qa_ec2_smoke.sh` + Playwright E2E 통과
+- 배포 게이트 의미
+  - `deploy-ec2`는 `ci` green 이후에만 실행
+  - 즉, 정식 테스트코드와 E2E가 실패하면 자동 배포가 차단됨
 
 ## 과제 11: GitHub Actions -> EC2 자동배포
 

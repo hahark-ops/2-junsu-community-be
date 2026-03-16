@@ -14,6 +14,7 @@ __pycache__/
 *$py.class
 .mypy_cache/
 .pytest_cache/
+.coverage
 .ruff_cache/
 
 # 배포 관련

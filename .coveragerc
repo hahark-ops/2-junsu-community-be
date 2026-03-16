@@ -1,0 +1,12 @@
+[run]
+source =
+    controllers
+    routers
+    dependencies
+    main
+
+[report]
+omit =
+    tests/*
+    */__pycache__/*
+    routers/file.py

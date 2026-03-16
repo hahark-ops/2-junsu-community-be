@@ -32,6 +32,25 @@ jobs:
       - name: Python compile check
         run: python -m compileall -q .
 
+  be-pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout BE
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run backend pytest with coverage gate
+        run: pytest -q --cov --cov-report=term-missing --cov-fail-under=70
+
   compose-config:
     runs-on: ubuntu-latest
     env:
@@ -80,8 +99,8 @@ jobs:
       - name: Validate reverse proxy compose config
         run: docker compose --env-file deploy.proxy.env.example -f docker-compose.reverse-proxy.yml config >/dev/null
 
-  smoke-test:
-    needs: [python-compile, compose-config]
+  integration-stack:
+    needs: [python-compile, be-pytest, compose-config]
     runs-on: ubuntu-latest
     env:
       FE_REPO: ${{ vars.FE_REPO != '' && vars.FE_REPO || format('{0}/2-junsu-community-fe', github.repository_owner) }}
@@ -107,6 +126,21 @@ jobs:
           path: fe-repo
           token: ${{ secrets.FE_REPO_READ_TOKEN != '' && secrets.FE_REPO_READ_TOKEN || github.token }}
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: fe-repo/package-lock.json
+
+      - name: Install frontend test deps
+        working-directory: fe-repo
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: fe-repo
+        run: npx playwright install --with-deps chromium
+
       - name: Start local stack for smoke test
         env:
           FE_REPO_PATH: ${{ github.workspace }}/fe-repo
@@ -122,6 +156,24 @@ jobs:
           BASE_URL=http://127.0.0.1 \
           ./scripts/qa_ec2_smoke.sh
 
+      - name: Run Playwright E2E tests
+        working-directory: fe-repo
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1
+          PLAYWRIGHT_OUTPUT_DIR: test-results
+          PLAYWRIGHT_HTML_REPORT: playwright-report
+        run: npm run test:e2e
+
       - name: Teardown local stack
         if: ${{ always() }}
         run: docker compose down -v --remove-orphans
+
+      - name: Upload Playwright artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            fe-repo/playwright-report
+            fe-repo/test-results
+          if-no-files-found: ignore

@@ -1,6 +1,6 @@
 # CI/CD 실행 가이드 (과제 8)
 
-최종 업데이트: 2026-03-04 (KST)
+최종 업데이트: 2026-03-16 (KST)
 
 ## 1. 운영 기준
 
@@ -27,9 +27,12 @@
 - 트리거: `push/pull_request` (`main`, `develop`)
 - 검증:
   - Python compile check
+  - 백엔드 `pytest + coverage 70% gate`
   - `docker-compose.yml` config check (FE cross-repo checkout 포함)
   - `docker-compose.reverse-proxy.yml` config check
   - 로컬 compose 기동 + `qa_ec2_smoke.sh` 스모크 테스트
+  - Playwright E2E (`회원가입/로그인/프로필 수정/탈퇴 후 재가입/게시글/댓글/좋아요/DM/unread`)
+  - Playwright report/trace/screenshot artifact 업로드
 
 ## 3.2 `deploy-ec2.yml`
 
