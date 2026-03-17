@@ -16,7 +16,7 @@ from dependencies import get_current_user, resolve_user_by_session_id
 from realtime.redis_bus import (
     RedisBusError,
     clear_room_presence,
-    is_redis_ready,
+    ensure_realtime_ready,
     refresh_room_presence,
     set_room_presence,
 )
@@ -27,13 +27,15 @@ router = APIRouter(prefix="/v1/dm")
 ws_router = APIRouter()
 
 
-def _require_realtime_available():
-    if not is_redis_ready():
+async def _require_realtime_available():
+    try:
+        await ensure_realtime_ready()
+    except RedisBusError as exc:
         raise APIException(
             code="REALTIME_UNAVAILABLE",
             message="실시간 채팅이 일시적으로 사용할 수 없습니다.",
             status_code=503,
-        )
+        ) from exc
 
 
 @router.post("/rooms", status_code=status.HTTP_200_OK)
@@ -74,7 +76,7 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
     current_user = None
 
     try:
-        _require_realtime_available()
+        await _require_realtime_available()
         current_user = resolve_user_by_session_id(session_id)
         require_room_access(room_id, current_user["email"])
         await dm_connection_manager.connect(room_id, websocket, current_user["userId"], current_user["email"])
@@ -86,29 +88,45 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
             payload = await websocket.receive_json()
             payload_type = payload.get("type")
             if payload_type == "send_message":
-                _require_realtime_available()
+                await _require_realtime_available()
                 message_row, created_new = await create_dm_message(
                     room_id,
                     current_user,
                     payload.get("content"),
                     payload.get("clientMessageId"),
                 )
-                if created_new:
-                    await publish_dm_message_and_notify_absent(room_id, current_user, message_row)
-                else:
-                    if message_row.get("realtimePublishedAt") is None:
+                try:
+                    if created_new:
                         await publish_dm_message_and_notify_absent(room_id, current_user, message_row)
                     else:
-                        await websocket.send_json(
-                            {
-                                "type": "message_created",
-                                "data": serialize_message_for_user(message_row, current_user),
-                            }
-                        )
+                        if message_row.get("realtimePublishedAt") is None:
+                            await publish_dm_message_and_notify_absent(room_id, current_user, message_row)
+                        else:
+                            await websocket.send_json(
+                                {
+                                    "type": "message_created",
+                                    "data": serialize_message_for_user(message_row, current_user),
+                                }
+                            )
+                except RedisBusError:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "code": "REALTIME_DELIVERY_FAILED",
+                            "message": "메시지는 저장되었지만 실시간 전파에 실패했습니다. 다시 시도해주세요.",
+                            "data": {
+                                "roomId": room_id,
+                                "messageId": message_row.get("messageId"),
+                                "clientMessageId": message_row.get("clientMessageId"),
+                            },
+                        }
+                    )
+                    await websocket.close(code=1013)
+                    break
                 continue
 
             if payload_type == "mark_read":
-                _require_realtime_available()
+                await _require_realtime_available()
                 last_read_message_id = payload.get("lastReadMessageId")
                 if last_read_message_id is not None:
                     try:
@@ -122,7 +140,7 @@ async def dm_websocket_endpoint(websocket: WebSocket, room_id: int):
                 await mark_room_as_read_and_notify(room_id, current_user, last_read_message_id)
                 continue
             if payload_type == "heartbeat":
-                _require_realtime_available()
+                await _require_realtime_available()
                 await refresh_room_presence(room_id, current_user["email"], connection_id)
                 continue
             if payload_type != "send_message":

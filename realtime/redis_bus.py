@@ -15,6 +15,7 @@ _pub_client: redis.Redis | None = None
 _sub_client: redis.Redis | None = None
 _subscriber_task: asyncio.Task | None = None
 _ready = False
+_publisher_ready = False
 _handler: Callable[[int, dict], Awaitable[None]] | None = None
 _last_subscriber_heartbeat_at = 0.0
 _last_subscriber_error = ""
@@ -31,16 +32,17 @@ async def ensure_redis_ready() -> None:
     if not REDIS_URL:
         raise RedisBusError("REDIS_URL is required for DM realtime delivery")
 
-    global _pub_client, _last_publisher_error
+    global _pub_client, _last_publisher_error, _publisher_ready
     if _pub_client is None:
         _pub_client = redis.from_url(REDIS_URL, decode_responses=True)
 
     try:
         await _pub_client.ping()
         _last_publisher_error = ""
+        _publisher_ready = True
     except Exception as exc:  # pragma: no cover - runtime infra path
         _last_publisher_error = str(exc)
-        _mark_unready(str(exc))
+        _publisher_ready = False
         raise RedisBusError(f"Redis connection failed: {exc}") from exc
 
 
@@ -58,7 +60,7 @@ def _mark_unready(error: str = "") -> None:
     _last_subscriber_error = error
 
 
-def is_redis_ready() -> bool:
+def is_subscriber_ready() -> bool:
     if not REDIS_URL:
         return False
     if not _ready:
@@ -68,10 +70,15 @@ def is_redis_ready() -> bool:
     return True
 
 
+def is_redis_ready() -> bool:
+    return bool(is_subscriber_ready() and _publisher_ready)
+
+
 def get_redis_status() -> dict:
     return {
         "enabled": bool(REDIS_URL),
-        "publisherReady": _pub_client is not None,
+        "publisherReady": _publisher_ready,
+        "subscriberReady": is_subscriber_ready(),
         "subscriberRunning": _subscriber_task is not None and not _subscriber_task.done(),
         "ready": is_redis_ready(),
         "lastSubscriberHeartbeatAt": _last_subscriber_heartbeat_at or None,
@@ -81,7 +88,6 @@ def get_redis_status() -> dict:
 
 
 async def get_redis_status_async() -> dict:
-    status = get_redis_status()
     publisher_healthy = False
     if REDIS_URL:
         try:
@@ -89,9 +95,9 @@ async def get_redis_status_async() -> dict:
             publisher_healthy = True
         except RedisBusError:
             publisher_healthy = False
-        status = get_redis_status()
+    status = get_redis_status()
     status["publisherHealthy"] = publisher_healthy
-    status["ready"] = bool(status["subscriberRunning"] and publisher_healthy and status["ready"])
+    status["ready"] = bool(status["subscriberReady"] and publisher_healthy)
     return status
 
 
@@ -99,12 +105,31 @@ def room_channel(room_id: int) -> str:
     return f"{DM_CHANNEL_PREFIX}.{room_id}"
 
 
-async def publish_room_event(room_id: int, payload: dict) -> None:
-    if not is_redis_ready():
+async def ensure_realtime_ready() -> None:
+    if not REDIS_URL:
+        raise RedisBusError("REDIS_URL is required for DM realtime delivery")
+    if not is_subscriber_ready():
         raise RedisBusError("Redis realtime subscriber is unavailable")
-    if _pub_client is None:
-        await ensure_redis_ready()
-    await _pub_client.publish(room_channel(room_id), json.dumps(payload, ensure_ascii=False))
+    await ensure_redis_ready()
+
+
+async def publish_room_event(room_id: int, payload: dict) -> None:
+    global _pub_client, _last_publisher_error, _publisher_ready
+    await ensure_realtime_ready()
+    try:
+        assert _pub_client is not None
+        await _pub_client.publish(room_channel(room_id), json.dumps(payload, ensure_ascii=False))
+    except Exception as exc:  # pragma: no cover - runtime infra path
+        _last_publisher_error = str(exc)
+        _publisher_ready = False
+        client = _pub_client
+        _pub_client = None
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:
+                pass
+        raise RedisBusError(f"Redis publish failed: {exc}") from exc
 
 
 def _presence_key(room_id: int, user_email: str, connection_id: str) -> str:
@@ -213,9 +238,10 @@ async def start_room_event_subscriber(handler: Callable[[int, dict], Awaitable[N
 
 
 async def stop_room_event_subscriber() -> None:
-    global _subscriber_task, _pub_client, _startup_event
+    global _subscriber_task, _pub_client, _startup_event, _publisher_ready
     _mark_unready()
     _startup_event = None
+    _publisher_ready = False
 
     if _subscriber_task is not None:
         _subscriber_task.cancel()

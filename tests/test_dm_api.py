@@ -58,9 +58,12 @@ def test_websocket_send_message_returns_ack_for_existing_message(monkeypatch):
     async def _noop(*args, **kwargs):
         return None
 
+    async def _ensure_ready():
+        return None
+
     monkeypatch.setattr("main.start_room_event_subscriber", _noop)
     monkeypatch.setattr("main.stop_room_event_subscriber", _noop)
-    monkeypatch.setattr("routers.dm.is_redis_ready", lambda: True)
+    monkeypatch.setattr("routers.dm.ensure_realtime_ready", _ensure_ready)
     monkeypatch.setattr("routers.dm.resolve_user_by_session_id", lambda session_id: current_user)
     monkeypatch.setattr("routers.dm.require_room_access", lambda room_id, email: {"roomId": room_id})
     monkeypatch.setattr("routers.dm.set_room_presence", _noop)
@@ -110,15 +113,87 @@ def test_websocket_send_message_returns_ack_for_existing_message(monkeypatch):
 def test_websocket_returns_error_when_realtime_unavailable(monkeypatch):
     from main import app
     from fastapi.testclient import TestClient
+    from realtime.redis_bus import RedisBusError
 
     async def _noop(*args, **kwargs):
         return None
 
+    async def _unavailable():
+        raise RedisBusError("down")
+
     monkeypatch.setattr("main.start_room_event_subscriber", _noop)
     monkeypatch.setattr("main.stop_room_event_subscriber", _noop)
-    monkeypatch.setattr("routers.dm.is_redis_ready", lambda: False)
+    monkeypatch.setattr("routers.dm.ensure_realtime_ready", _unavailable)
 
     with TestClient(app) as client:
         with client.websocket_connect("/ws/dm/3") as websocket:
             error_payload = websocket.receive_json()
             assert error_payload["code"] == "REALTIME_UNAVAILABLE"
+
+
+def test_websocket_reports_delivery_failure_after_message_saved(monkeypatch):
+    from main import app
+    from fastapi.testclient import TestClient
+    from realtime.redis_bus import RedisBusError
+
+    current_user = {
+        "userId": 1,
+        "email": "tester@example.com",
+        "nickname": "tester",
+        "profileimage": None,
+    }
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    async def _ensure_ready():
+        return None
+
+    async def _create_dm_message(room_id, user, content, client_message_id):
+        return (
+            {
+                "messageId": 22,
+                "roomId": room_id,
+                "clientMessageId": client_message_id,
+                "senderUserId": user["userId"],
+                "senderNickname": user["nickname"],
+                "senderProfileImage": None,
+                "senderEmail": user["email"],
+                "content": content,
+                "createdAt": "2026-03-16 10:00:00",
+                "realtimePublishedAt": None,
+            },
+            True,
+        )
+
+    async def _publish_fail(*args, **kwargs):
+        raise RedisBusError("publish failed")
+
+    monkeypatch.setattr("main.start_room_event_subscriber", _noop)
+    monkeypatch.setattr("main.stop_room_event_subscriber", _noop)
+    monkeypatch.setattr("routers.dm.ensure_realtime_ready", _ensure_ready)
+    monkeypatch.setattr("routers.dm.resolve_user_by_session_id", lambda session_id: current_user)
+    monkeypatch.setattr("routers.dm.require_room_access", lambda room_id, email: {"roomId": room_id})
+    monkeypatch.setattr("routers.dm.set_room_presence", _noop)
+    monkeypatch.setattr("routers.dm.clear_room_presence", _noop)
+    monkeypatch.setattr("routers.dm.refresh_room_presence", _noop)
+    monkeypatch.setattr("routers.dm.create_dm_message", _create_dm_message)
+    monkeypatch.setattr("routers.dm.publish_dm_message_and_notify_absent", _publish_fail)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/dm/9", cookies={"session_id": "valid"}) as websocket:
+            connected = websocket.receive_json()
+            assert connected["type"] == "connected"
+
+            websocket.send_json(
+                {
+                    "type": "send_message",
+                    "content": "hello",
+                    "clientMessageId": "client-1",
+                }
+            )
+
+            payload = websocket.receive_json()
+            assert payload["type"] == "error"
+            assert payload["code"] == "REALTIME_DELIVERY_FAILED"
+            assert payload["data"]["clientMessageId"] == "client-1"
